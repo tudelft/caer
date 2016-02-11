@@ -154,7 +154,7 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 		sprintf(file_path, "%s/%s", path, FLOW_OUTPUT_FILE_NAME);
 
 		char comments[1024];
-		sprintf(comments,"Parameters: refractoryPeriod %ld, flow_dtMax %ld, vMax %f, dx %d, nReject %d, maxNRMSE %f, dtStopFactor %f, nMin %d, limitEventRate %d, rateSetpoint %f rateTimeConstant %f, subSampleBy %d",
+		sprintf(comments,"Parameters, refractoryPeriod, dtMax, vMax, dx, nReject, maxNRMSE, dtStopFactor, nMin, limitEventRate, rateSetpoint, rateTimeConstant, subSampleBy\n#, %lld, %lld, %f, %u, %u, %f, %f, %u, %u, %f, %f, %u\n",
 		state->flowState->refractoryPeriod, state->flowState->dtMax, state->flowState->vMax, state->flowState->dx,
 		state->flowState->nReject, state->flowState->maxNRMSE, state->flowState->dtStopFactor, state->flowState->nMin,
 		state->flowState->limitEventRate, state->flowState->rateSetpoint, state->flowState->rateTimeConstant, state->subSampleBy);

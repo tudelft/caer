@@ -60,7 +60,6 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	struct point3d points[state->kernelSize];
 	uint32_t i;
 
-	// BASED ON 3/10th of events
 	// Accumulate event timestamps where possible
 	for (i = 0; i < state->kernelSize; i++) {
 		uint8_t xx = (uint8_t) (x + state->dxKernel[i]);
@@ -77,9 +76,9 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 			points[0].dt = dt;
 		}
 		else {
-			int32_t j,k;
+			uint32_t j,k;
 			bool c = false;
-			for (j=0; j < (int32_t)n-1; j++) {
+			for (j=0; j < n-1; j++) {
 				if (dt < points[j].dt) {
 					for (k = (int32_t)n-2; k >= j; k--) {
 						points[k+1] = points[k];
@@ -100,13 +99,13 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		n++;
 	}
 
-	if ((float) n < state->nMin) { // insufficient events - return
+	if (n < state->nMin) { // insufficient events - return
 		return;
 	}
 
 	// Determine where to cut off event selection
-	int8_t dx1 = (int8_t)(points[0].xx - x);
-	int8_t dy1 = (int8_t)(points[0].yy - y);
+	int16_t dx1 = (int16_t)(points[0].xx - x);
+	int16_t dy1 = (int16_t)(points[0].yy - y);
 	int64_t dtMax;
 	bool nn = false;
 	for (i=1; i < n-1; i++) {
@@ -171,8 +170,8 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		return;
 	}
 	// Compute plane parameters
-	float a = 1/D*(sy2*sxt - sxy*syt);
-	float b = 1/D*(sx2*syt - sxy*sxt);
+	float a = (sy2*sxt - sxy*syt)/D;
+	float b = (sx2*syt - sxy*sxt)/D;
 
 	// Compute R2
 	float SSR = st2 - a*sxt - b*syt;
@@ -283,8 +282,8 @@ bool flowAdaptiveInitSearchKernels(flowAdaptiveState state) {
 
 	int8_t x,y;
 	size_t n = 0;
-	for (x = (int8_t) -((int8_t) state->dx); x <= (int8_t) state->dx; x++) {
-		for (y = (int8_t) -((int8_t) state->dx); y <= (int8_t) state->dx; y++) {
+	for (x = -((int8_t) state->dx); x <= (int8_t) state->dx; x++) {
+		for (y = -((int8_t) state->dx); y <= (int8_t) state->dx; y++) {
 			if (x == 0 && y == 0)
 				continue;
 			state->dxKernel[n] = x;
