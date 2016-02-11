@@ -81,20 +81,29 @@ static char *getFullFilePath(const char *subSystemString, const char *directory,
 		prefix = DEFAULT_PREFIX;
 	}
 
-	// Assemble together: directory/prefix-time.aedat
-	size_t filePathLength = strlen(directory) + strlen(prefix) + currentTimeStringLength + 9;
-	// 1 for the directory/prefix separating slash, 1 for prefix-time separating
-	// dash, 6 for file extension, 1 for terminating NUL byte = +9.
+	char filePath[1024];
 
-	char *filePath = malloc(filePathLength);
-	if (filePath == NULL) {
+	snprintf(filePath, 1024, "%s/%s-%s.aedat", directory, prefix, currentTimeString);
+
+	// Check if filename exists
+	struct stat st;
+	int n = 0;
+	while (stat(filePath,&st) == 0) {
+		n++;
+		snprintf(filePath, 1024, "%s/%s-%s_%02d.aedat", directory, prefix, currentTimeString, n);
+	}
+
+	// Assemble together: directory/prefix-time.aedat
+	size_t filePathLength = strlen(filePath);
+
+	char *file_path = malloc(filePathLength);
+	if (file_path == NULL) {
 		caerLog(CAER_LOG_CRITICAL, subSystemString, "Unable to allocate memory for full file path.");
 		return (NULL);
 	}
+	snprintf(file_path, filePathLength + 1, "%s", filePath);
 
-	snprintf(filePath, filePathLength, "%s/%s-%s.aedat", directory, prefix, currentTimeString);
-
-	return (filePath);
+	return (file_path);
 }
 
 static bool caerOutputFileInit(caerModuleData moduleData) {
@@ -133,7 +142,7 @@ static bool caerOutputFileInit(caerModuleData moduleData) {
 		return (false);
 	}
 
-	caerLog(CAER_LOG_INFO, moduleData->moduleSubSystemString, "Opened output file '%s' successfully for writing.",
+	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString, "Opened output file '%s' successfully for writing.",
 		filePath);
 	free(filePath);
 

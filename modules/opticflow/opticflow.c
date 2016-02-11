@@ -62,6 +62,7 @@ static void caerOpticFlowFilterConfig(caerModuleData moduleData);
 static void caerOpticFlowFilterExit(caerModuleData moduleData);
 static bool allocateBuffers(OpticFlowFilterState state, int16_t sourceID);
 static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent);
+static bool openTimingFile(OpticFlowFilterState state, caerModuleData moduleData, const char* fileBaseName);
 static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, const char* fileBaseName);
 static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, flowEvent e);
 
@@ -163,8 +164,9 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 			caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
 					"File logging not available.");
 		}
-	}
-	if (outMode == OF_OUT_FILE || outMode == OF_OUT_BOTH) {
+		
+		// open timging file
+		openTimingFile(state, moduleData, path);
 		openAEDatFile(state, moduleData, path);
 	}
 	free(path);
@@ -210,14 +212,15 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		// In all cases, we work with flow events in this module
 		flowEvent e = flowEventPacketGetEvent(flow,i);
 
+		// Skip invalid events.
+		if (!flowEventIsValid(e)) {
+			continue;
+		}
+
 		// Input logging
 		if (state->outputState->mode == OF_OUT_FILE
 				|| state->outputState->mode == OF_OUT_BOTH) {
 			writeAEDatFile(state, moduleData, e);
-		}
-		// Skip invalid events.
-		if (!flowEventIsValid(e)) {
-			continue;
 		}
 
 		uint16_t x = flowEventGetX(e);
@@ -272,12 +275,6 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			}
 		}
 	}
-
-	// Print average optic flow, time delay, and flow rate
-//	fprintf(stdout, "%c[2K", 27);
-//	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. D: %1.3f. delay: %ld ms. rate: %3.3fk",
-//			state->wx, state->wy, state->D, delay/1000, state->flowState->flowRate/1e3f);
-//	fflush(stdout);
 }
 
 static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
@@ -398,6 +395,43 @@ static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent) {
 	}
 }
 
+static bool openTimingFile(OpticFlowFilterState state, caerModuleData moduleData,
+		const char* fileBaseName) {
+	// Get time info
+	time_t rawTime;
+	time (&rawTime);
+	const struct tm * timeInfo = localtime(&rawTime);
+	char fileName[128];
+	char fileTimestamp[64];
+	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%H_%M_%S", timeInfo);
+	sprintf(fileName, "%s/%s_%s.csv", fileBaseName, TIMING_OUTPUT_FILE_NAME, fileTimestamp);
+
+	// Check if filename exists
+	struct stat st;
+	int n = 0;
+	while (stat(fileName,&st) == 0) {
+		caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
+				"Filename %s is already used.", fileName);
+		n++;
+		sprintf(fileName, "%s/%s_%s_%d.csv", fileBaseName,
+				TIMING_OUTPUT_FILE_NAME, fileTimestamp, n);
+	}
+
+	state->timingOutputFile = fopen(fileName,"w");
+	if (state->timingOutputFile == NULL) {
+		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
+				"Failed to open file for timing logging");
+		return (false);
+	}
+	fprintf(state->timingOutputFile, "#Timing data for each event packet\n");
+	fprintf(state->timingOutputFile,
+			"#timestamp [us], delay [us], flowRate [1/s], wx [1/s], wy [1/s], D [1/s]\n");
+	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
+			"Writing timing info to %s",fileName);
+
+	return (true);
+}
+
 static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 		const char* fileBaseName) {
 	// In this (git) branch we also log the raw event input in an AEDAT1 file
@@ -448,41 +482,22 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	}
 
 	// Write header (based on output_common.c)
-	fprintf(state->rawOutputFile,"#!AER-DAT1.0\n");
-	fprintf(state->rawOutputFile,"#Format: RAW\r\n");
-	char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(10),
+	fprintf(state->rawOutputFile,"#!AER-DAT2.0\n");
+  fprintf(state->rawOutputFile,"# This is a raw AE data file - do not edit");
+  fprintf(state->rawOutputFile,"# Data format is int16 address, int32 timestamp (4 bytes total), repeated for each event");
+  fprintf(state->rawOutputFile,"# Timestamps tick is 1 us");
+  size_t currentTimeStringLength = 45;
+	char currentTimeString[currentTimeStringLength]; // + 1 for terminating NUL byte.
+	strftime(currentTimeString, currentTimeStringLength, "# created %a %b %d %T %Z %G\n", timeInfo);
+  char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(10),
 			"sourceString");
 	fprintf(state->rawOutputFile,"%s",sourceString);
 	free(sourceString);
+  fprintf(state->rawOutputFile,"# AEChip: ch.unizh.ini.jaer.chip.retina.DVS128");
 
-	size_t currentTimeStringLength = 45;
-	char currentTimeString[currentTimeStringLength]; // + 1 for terminating NUL byte.
-	strftime(currentTimeString, currentTimeStringLength,
-			"#Start-Time: %Y-%m-%d %H:%M:%S (TZ%z)\n", timeInfo);
-
-	fprintf(state->rawOutputFile,"%s", currentTimeString);
-	fprintf(state->rawOutputFile, "#!END-HEADER\n");
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
 			"Writing a maximum of %lld raw events to %s",
 			maxNumberOfRawEvents, fileName);
-
-	// Now we also log time delay
-	if (n > 0){
-		sprintf(fileName, "%s/%s_%s_%d.csv", fileBaseName, TIMING_OUTPUT_FILE_NAME, fileTimestamp, n);
-	} else {
-		sprintf(fileName, "%s/%s_%s.csv", fileBaseName, TIMING_OUTPUT_FILE_NAME, fileTimestamp);
-	}
-	state->timingOutputFile = fopen(fileName,"w");
-	if (state->timingOutputFile == NULL) {
-		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
-				"Failed to open file for timing logging");
-		return (false);
-	}
-	fprintf(state->timingOutputFile, "#Timing data for each event packet\n");
-	fprintf(state->timingOutputFile,
-			"#timestamp [us], delay [us], flowRate [1/s], wx [1/s], wy [1/s], D [1/s]\n");
-	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-			"Writing timing info to %s",fileName);
 
 	return (true);
 }
@@ -490,17 +505,17 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 		flowEvent e) {
 	static int64_t nEvents = 0;
-	static uint32_t t;
-	static uint16_t x, y, p, data;
+	static uint32_t t, data, p, x, y;
 	if (state->rawOutputFile != NULL) {
-			if (nEvents < maxNumberOfRawEvents || true) {
-			x = flowEventGetX(e) & 0x7f;
-			y = flowEventGetY(e) & 0x7f;
-			p = flowEventGetPolarity(e)  & 0x1;
-			data = p | (x << 1) | (y << 8);	// arrange data in corret order for AEDat v1.0
-			data = __bswap_16(data);	// write in big endian
+		if (nEvents < maxNumberOfRawEvents || true) {
+			x = (uint32_t)((DVS128_N_PIXELS_Y - flowEventGetX(e) - 1) & 0x7f);
+			y = (uint32_t)((DVS128_N_PIXELS_Y - flowEventGetY(e) - 1) & 0x7f);
+			p = (uint32_t)(flowEventGetPolarity(e)  & 0x1);
+			data = p | (x << 1) | (y << 8);	// arrange data in corret order for AEDat v2.0
+			data = __bswap_32(data);	// write in big endian
 			fwrite(&data, sizeof(data), 1, state->rawOutputFile);
-			t = __bswap_32(e->timestamp);
+			t = (uint32_t)(e->timestamp);
+			t = __bswap_32(t);
 			fwrite(&t, sizeof(t), 1, state->rawOutputFile);
 			nEvents++;
 		}
