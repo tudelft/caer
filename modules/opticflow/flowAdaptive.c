@@ -29,8 +29,8 @@ struct point3d {
 void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		flowAdaptiveState state) {
 	int64_t t = e->timestamp;
-	uint8_t x = flowEventGetX(e);
-	uint8_t y = flowEventGetY(e);
+	uint16_t x = flowEventGetX(e);
+	uint16_t y = flowEventGetY(e);
 
 	// Software based refractory period check
 	int64_t Dt = t - simple2DBufferLongGet(buffer, (size_t) x, (size_t) y);

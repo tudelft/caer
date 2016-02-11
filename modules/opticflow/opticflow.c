@@ -21,8 +21,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <limits.h>
+#include <byteswap.h>
 
-#define RING_BUFFER_SIZE 16384
+#define RING_BUFFER_SIZE 32768
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1/115.0f
 
 outputMode outMode = OF_OUT_BOTH;
@@ -392,7 +393,7 @@ static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent) {
 
 static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 		const char* fileBaseName) {
-	// In this (git) branch we also log the raw event input in an AEDAT3.1 file
+	// In this (git) branch we also log the raw event input in an AEDAT1 file
 	// Since storage space on the Odroid is limited, we check how much is available
 	// and limit the log file size to this.
 	struct statfs stfs;
@@ -440,7 +441,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	}
 
 	// Write header (based on output_common.c)
-	fprintf(state->rawOutputFile,"#!AER-DAT2.0\n");
+	fprintf(state->rawOutputFile,"#!AER-DAT1.0\n");
 	fprintf(state->rawOutputFile,"#Format: RAW\r\n");
 	char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(10),
 			"sourceString");
@@ -481,12 +482,19 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 
 static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 		flowEvent e) {
+	static int64_t nEvents = 0;
+	static uint32_t t;
+	static uint16_t x, y, p, data;
 	if (state->rawOutputFile != NULL) {
-		static int64_t nEvents = 0;
-		if (nEvents < maxNumberOfRawEvents || true) {
-			fwrite(&e->data, 1, sizeof(e->data), state->rawOutputFile);
-			int32_t t = (int32_t) e->timestamp;
-			fwrite(&t, 1, sizeof(t), state->rawOutputFile);
+			if (nEvents < maxNumberOfRawEvents || true) {
+			x = flowEventGetX(e) & 0x7f;
+			y = flowEventGetY(e) & 0x7f;
+			p = flowEventGetPolarity(e)  & 0x1;
+			data = p | (x << 1) | (y << 8);	// arrange data in corret order for AEDat v1.0
+			data = __bswap_16(data);	// write in big endian
+			fwrite(&data, sizeof(data), 1, state->rawOutputFile);
+			t = __bswap_32(e->timestamp);
+			fwrite(&t, sizeof(t), 1, state->rawOutputFile);
 			nEvents++;
 		}
 		else {

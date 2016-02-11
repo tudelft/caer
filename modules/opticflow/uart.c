@@ -81,7 +81,7 @@ int uart_rx(int len, unsigned char *data, int timeout_ms)
   struct termios options;
 
   tcgetattr(serial_handle, &options);
-  options.c_cc[VTIME] = timeout_ms / 100;
+  options.c_cc[VTIME] = (cc_t)timeout_ms / 100;
   options.c_cc[VMIN] = 0;
   tcsetattr(serial_handle, TCSANOW, &options);
 

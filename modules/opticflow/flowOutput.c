@@ -131,7 +131,7 @@ static int outputHandlerThread(void *stateArg) {
 			break;
 	}
 
-	struct timespec sleepTime = { .tv_sec = 0, .tv_nsec = 100000 };
+	struct timespec sleepTime = { .tv_sec = 0, .tv_nsec = 25000 };
 	struct timespec sleepTime2 = { .tv_sec = 0, .tv_nsec = 100000 };
 
 	// Wait until the buffer is initialized

@@ -52,7 +52,7 @@ extern const struct dvs128_calibration dvs128Calibration;
  * @param y Y-address of pixel
  * @return Undistorted pixel location
  */
-float dvs128GetUndistortedPixelX(uint8_t x, uint8_t y);
+float dvs128GetUndistortedPixelX(uint16_t x, uint16_t y);
 
 /**
  * Returns an undistorted pixel Y-coordinate based on the
@@ -63,6 +63,6 @@ float dvs128GetUndistortedPixelX(uint8_t x, uint8_t y);
  * @param y Y-address of pixel
  * @return Undistorted pixel location
  */
-float dvs128GetUndistortedPixelY(uint8_t x, uint8_t y);
+float dvs128GetUndistortedPixelY(uint16_t x, uint16_t y);
 
 #endif /* MODULES_OPTICFLOW_DVS128CALIBRATION_H_ */

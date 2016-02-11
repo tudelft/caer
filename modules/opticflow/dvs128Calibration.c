@@ -8,7 +8,7 @@
 #include "dvs128Calibration.h"
 #include "main.h"
 
-float dvs128GetUndistortedPixelX(uint8_t x, uint8_t y) {
+float dvs128GetUndistortedPixelX(uint16_t x, uint16_t y) {
 	if (x < DVS128_N_PIXELS_X && y < DVS128_N_PIXELS_Y) {
 		return (dvs128Calibration.undistortionMapX[x][DVS128_N_PIXELS_Y - 1 - y]);
 	}
@@ -16,7 +16,7 @@ float dvs128GetUndistortedPixelX(uint8_t x, uint8_t y) {
 	return (0.0f);
 }
 
-float dvs128GetUndistortedPixelY(uint8_t x, uint8_t y) {
+float dvs128GetUndistortedPixelY(uint16_t x, uint16_t y) {
 	if (x < DVS128_N_PIXELS_X && y < DVS128_N_PIXELS_Y) {
 		return (dvs128Calibration.undistortionMapY[x][DVS128_N_PIXELS_Y - 1 - y]);
 	}
