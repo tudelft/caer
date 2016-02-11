@@ -4,10 +4,10 @@ ENDIF()
 
 IF (ENABLE_OPTICFLOW)
 	# Check module dependencies first.
-	#IF (NOT ENABLE_STATISTICS)
-	#	MESSAGE(SEND_ERROR "Statistics module required by Visualizer module. Please enable it!")
-	#	RETURN()
-	#ENDIF()
+	IF (NOT ENABLE_FILE_OUTPUT)
+		MESSAGE(SEND_ERROR "File output module required by opticflow module. Please enable it!")
+		RETURN()
+	ENDIF()
 	
 	SET(CAER_COMPILE_DEFINITIONS ${CAER_COMPILE_DEFINITIONS} -DENABLE_OPTICFLOW=1 PARENT_SCOPE)
 

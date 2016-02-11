@@ -258,7 +258,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			if ((state->outputState->mode == OF_OUT_FILE
 					|| state->outputState->mode == OF_OUT_BOTH)
 					&& state->timingOutputFile != NULL) {
-				fprintf(state->timingOutputFile, "%ld, %ld, %f, %f, %f, %f\n",
+				fprintf(state->timingOutputFile, "%lld, %lld, %f, %f, %f, %f\n",
 						e->timestamp, delay, state->flowState->flowRate,
 						state->wx, state->wy, state->D);
 			}
@@ -405,12 +405,12 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	int64_t bytesFree = (int64_t) stfs.f_bsize * (int64_t) stfs.f_bavail;
 	if (bytesFree <= EVENT_STORAGE_MARGIN && false)  {
 		caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
-				"Only %ld bytes available - raw logging disabled for safety", bytesFree);
+				"Only %lld bytes available - raw logging disabled for safety", bytesFree);
 		return (false);
 	}
 	maxNumberOfRawEvents = (bytesFree - EVENT_STORAGE_MARGIN) / RAW_EVENT_BYTES;
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-			"%ld bytes available for logging", bytesFree);
+			"%lld bytes available for logging", bytesFree);
 
 	// Get time info
 	time_t rawTime;
@@ -455,7 +455,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	fprintf(state->rawOutputFile,"%s", currentTimeString);
 	fprintf(state->rawOutputFile, "#!END-HEADER\n");
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-			"Writing a maximum of %ld raw events to %s",
+			"Writing a maximum of %lld raw events to %s",
 			maxNumberOfRawEvents, fileName);
 
 	// Now we also log time delay

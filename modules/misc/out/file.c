@@ -71,9 +71,9 @@ char *getTopPath(const char *subSystemString) {
 	}
 
 	// strip function name
-	char* fn = strrchr(dir,'/');
+	char* fn = strrchr(dir,'/caer-bin');
 	if (fn)	{
-		*fn = '\0';
+		*(fn-8) = '\0';
 	}
 
 	return (dir);

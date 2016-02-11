@@ -23,6 +23,7 @@
 #include "base/log.h"
 #include "base/mainloop.h"
 #include "base/misc.h"
+#include <unistd.h>
 
 // Devices support.
 #include "modules/ini/dynapse_fx2.h"
@@ -468,9 +469,9 @@ int main(int argc, char **argv) {
 	readlink(symlink_path, path, PATH_MAX);
 
 	// strip function name
-	char* fn = strrchr(path,'/');
+	char* fn = strrchr(path,'/caer-bin');
 	if (fn)	{
-		*fn = '\0';
+		*(fn-8) = '\0';
 	}
 
 	strcat(path, "/caer-config.xml");
