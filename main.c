@@ -119,6 +119,10 @@
 #include "modules/spiralview/spiralview.h"
 #endif
 
+#ifdef ENABLE_OPTICFLOW
+#include "modules/opticflow/opticflow.h"
+#endif
+
 static bool mainloop_1(void);
 
 #ifdef ENABLE_GESTURELEARNINGFILTER
@@ -217,6 +221,10 @@ static bool mainloop_1(void) {
 #ifdef ENABLE_FILE_INPUT
 	caerMeanRateFilterDVS(15, polarity_cam, &freqplot);
 #endif
+
+	// Computes optic flow from events
+#ifdef ENABLE_OPTICFLOW
+	caerOpticFlowFilter(2, polarity); //TODO update once new functionality is implemented
 #endif
 
 	// Fitler that maps polarity dvs events as spiking inputs of the dynapse processor

@@ -38,6 +38,7 @@ NB: in the example mainloop (contained in the main.c file) only one input device
 
 Optional modules:
  -DENABLE_BAFILTER=1    - enable background activity filter module
+ -DENABLE_OPTICFLOW=1    - enable optic flow filter module
  -DENABLE_STATISTICS=1  - enable console statistics module
  -DENABLE_VISUALIZER=1  - enable visualizer module
  -DENABLE_IMAGEGENERATOR=1 - enable image generator
