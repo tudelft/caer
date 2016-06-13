@@ -60,6 +60,9 @@
 #ifdef ENABLE_FRAMEENHANCER
 #include "modules/frameenhancer/frameenhancer.h"
 #endif
+#ifdef ENABLE_OPTICFLOW
+#include "modules/opticflow/opticflow.h"
+#endif
 #ifdef ENABLE_STATISTICS
 #include "modules/statistics/statistics.h"
 #endif
@@ -153,6 +156,11 @@ static bool mainloop_1(void) {
 	// Enable image and event undistortion by using OpenCV camera calibration.
 #ifdef ENABLE_CAMERACALIBRATION
 	caerCameraCalibration(5, polarity, frame);
+#endif
+
+	// Computes optic flow from events
+#ifdef ENABLE_OPTICFLOW
+	caerOpticFlowFilter(2, polarity); //TODO update once new functionality is implemented
 #endif
 
 	//Enable camera pose estimation
