@@ -11,20 +11,24 @@
 #include "base/mainloop.h"
 #include "base/module.h"
 #include "ext/buffers.h"
+#include "flowEvent.h"
+#include "flowBenosman2014.h"
 
-struct BAFilter_state {
-	simple2DBufferLong timestampMap;
-	int32_t deltaT;
+#define FLOW_BUFFER_SIZE 3
+
+struct OpticFlowFilter_state {
+	FlowEventBuffer buffer;
+	FlowBenosman2014Params params;
 	int8_t subSampleBy;
 };
 
-typedef struct BAFilter_state *BAFilterState;
+typedef struct OpticFlowFilter_state *OpticFlowFilterState;
 
 static bool caerOpticFlowFilterInit(caerModuleData moduleData);
 static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber, va_list args);
 static void caerOpticFlowFilterConfig(caerModuleData moduleData);
 static void caerOpticFlowFilterExit(caerModuleData moduleData);
-static bool allocateTimestampMap(BAFilterState state, int16_t sourceID);
+static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID);
 
 static struct caer_module_functions caerOpticFlowFilterFunctions = { .moduleInit =
 	&caerOpticFlowFilterInit, .moduleRun = &caerOpticFlowFilterRun, .moduleConfig =
@@ -36,16 +40,24 @@ void caerOpticFlowFilter(uint16_t moduleID, caerPolarityEventPacket polarity) {
 		return;
 	}
 
-	caerModuleSM(&caerOpticFlowFilterFunctions, moduleData, sizeof(struct BAFilter_state), 1, polarity);
+	caerModuleSM(&caerOpticFlowFilterFunctions, moduleData, sizeof(struct OpticFlowFilter_state), 1, polarity);
 }
 
 static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
-	sshsNodePutIntIfAbsent(moduleData->moduleNode, "deltaT", 30000);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "dtMin", 3000);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "dtMax", 100000);
+	sshsNodePutIntIfAbsent(moduleData->moduleNode, "dx", 3);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "thr1", 1E-5);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "thr2", 5e-3);
 	sshsNodePutByteIfAbsent(moduleData->moduleNode, "subSampleBy", 0);
 
-	BAFilterState state = moduleData->moduleState;
+	OpticFlowFilterState state = moduleData->moduleState;
 
-	state->deltaT = sshsNodeGetInt(moduleData->moduleNode, "deltaT");
+	state->params.dtMin = sshsNodeGetLong(moduleData->moduleNode, "dtMin");
+	state->params.dtMax = sshsNodeGetLong(moduleData->moduleNode, "dtMax");
+	state->params.dx 	= (uint16_t) sshsNodeGetInt(moduleData->moduleNode, "dx");
+	state->params.thr1  = sshsNodeGetDouble(moduleData->moduleNode, "thr1");
+	state->params.thr2  = sshsNodeGetDouble(moduleData->moduleNode, "thr2");
 	state->subSampleBy = sshsNodeGetByte(moduleData->moduleNode, "subSampleBy");
 
 	// Add config listeners last, to avoid having them dangling if Init doesn't succeed.
@@ -66,77 +78,48 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		return;
 	}
 
-	BAFilterState state = moduleData->moduleState;
+	OpticFlowFilterState state = moduleData->moduleState;
 
 	// If the map is not allocated yet, do it.
-	if (state->timestampMap == NULL) {
-		if (!allocateTimestampMap(state, caerEventPacketHeaderGetEventSource(&polarity->packetHeader))) {
+	if (state->buffer == NULL) {
+		if (!allocateBuffer(state, caerEventPacketHeaderGetEventSource(&polarity->packetHeader))) {
 			// Failed to allocate memory, nothing to do.
 			caerLog(CAER_LOG_ERROR, moduleData->moduleSubSystemString, "Failed to allocate memory for timestampMap.");
 			return;
 		}
 	}
 
+	int counter = 0;
+
 	// Iterate over events and filter out ones that are not supported by other
 	// events within a certain region in the specified timeframe.
 	CAER_POLARITY_ITERATOR_VALID_START(polarity)
-		// Get values on which to operate.
-		int64_t ts = caerPolarityEventGetTimestamp64(caerPolarityIteratorElement, polarity);
-		uint16_t x = caerPolarityEventGetX(caerPolarityIteratorElement);
-		uint16_t y = caerPolarityEventGetY(caerPolarityIteratorElement);
+		struct flow_event e = flowEventInitFromPolarity(caerPolarityIteratorElement,polarity);
 
-		// Apply sub-sampling.
-		x = U16T(x >> state->subSampleBy);
-		y = U16T(y >> state->subSampleBy);
+		// Compute optic flow using events in buffer
+		flowBenosman2014(&e,state->buffer,state->params);
 
-		// Get value from map.
-		int64_t lastTS = state->timestampMap->buffer2d[x][y];
+		// Add event to buffer
+		flowEventBufferAdd(e,state->buffer);
 
-		if ((I64T(ts - lastTS) >= I64T(state->deltaT)) || (lastTS == 0)) {
-			// Filter out invalid.
-			caerPolarityEventInvalidate(caerPolarityIteratorElement, polarity);
-		}
-
-		// Update neighboring region.
-		size_t sizeMaxX = (state->timestampMap->sizeX - 1);
-		size_t sizeMaxY = (state->timestampMap->sizeY - 1);
-
-		if (x > 0) {
-			state->timestampMap->buffer2d[x - 1][y] = ts;
-		}
-		if (x < sizeMaxX) {
-			state->timestampMap->buffer2d[x + 1][y] = ts;
-		}
-
-		if (y > 0) {
-			state->timestampMap->buffer2d[x][y - 1] = ts;
-		}
-		if (y < sizeMaxY) {
-			state->timestampMap->buffer2d[x][y + 1] = ts;
-		}
-
-		if (x > 0 && y > 0) {
-			state->timestampMap->buffer2d[x - 1][y - 1] = ts;
-		}
-		if (x < sizeMaxX && y < sizeMaxY) {
-			state->timestampMap->buffer2d[x + 1][y + 1] = ts;
-		}
-
-		if (x > 0 && y < sizeMaxY) {
-			state->timestampMap->buffer2d[x - 1][y + 1] = ts;
-		}
-		if (x < sizeMaxX && y > 0) {
-			state->timestampMap->buffer2d[x + 1][y - 1] = ts;
+		// For now, count events in packet and output how many have flow
+		if (e.hasFlow) {
+			counter++;
 		}
 	CAER_POLARITY_ITERATOR_VALID_END
+	printf("Number of flow events: %i\n",counter);
 }
 
 static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
 	caerModuleConfigUpdateReset(moduleData);
 
-	BAFilterState state = moduleData->moduleState;
+	OpticFlowFilterState state = moduleData->moduleState;
 
-	state->deltaT = sshsNodeGetInt(moduleData->moduleNode, "deltaT");
+	state->params.dtMin = sshsNodeGetInt(moduleData->moduleNode, "dtMin");
+	state->params.dtMax = sshsNodeGetInt(moduleData->moduleNode, "dtMax");
+	state->params.dx 	= (uint16_t)sshsNodeGetInt(moduleData->moduleNode, "dx");
+	state->params.thr1  = sshsNodeGetDouble(moduleData->moduleNode, "thr1");
+	state->params.thr2  = sshsNodeGetDouble(moduleData->moduleNode, "thr2");
 	state->subSampleBy = sshsNodeGetByte(moduleData->moduleNode, "subSampleBy");
 }
 
@@ -144,26 +127,26 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 	// Remove listener, which can reference invalid memory in userData.
 	sshsNodeRemoveAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
 
-	BAFilterState state = moduleData->moduleState;
+	OpticFlowFilterState state = moduleData->moduleState;
 
 	// Ensure map is freed.
-	simple2DBufferFreeLong(state->timestampMap);
+	flowEventBufferFree(state->buffer);
 }
 
-static bool allocateTimestampMap(BAFilterState state, int16_t sourceID) {
+static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID) {
 	// Get size information from source.
 	sshsNode sourceInfoNode = caerMainloopGetSourceInfo(U16T(sourceID));
 	if (sourceInfoNode == NULL) {
 		// This should never happen, but we handle it gracefully.
-		caerLog(CAER_LOG_ERROR, __func__, "Failed to get source info to allocate timestamp map.");
+		caerLog(CAER_LOG_ERROR, __func__, "Failed to get source info to allocate flow event buffer.");
 		return (false);
 	}
 
 	int16_t sizeX = sshsNodeGetShort(sourceInfoNode, "dvsSizeX");
 	int16_t sizeY = sshsNodeGetShort(sourceInfoNode, "dvsSizeY");
 
-	state->timestampMap = simple2DBufferInitLong((size_t) sizeX, (size_t) sizeY);
-	if (state->timestampMap == NULL) {
+	state->buffer = flowEventBufferInit((size_t) sizeX, (size_t) sizeY, FLOW_BUFFER_SIZE);
+	if (state->buffer == NULL) {
 		return (false);
 	}
 
