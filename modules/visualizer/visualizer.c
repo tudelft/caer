@@ -780,6 +780,29 @@ bool caerVisualizerRendererPolarityEvents(caerVisualizerState state, caerEventPa
 	return (true);
 }
 
+bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacketHeader polarityEventPacketHeader) {
+	UNUSED_ARGUMENT(state);
+
+	if (caerEventPacketHeaderGetEventValid(polarityEventPacketHeader) == 0) {
+		return (false);
+	}
+
+	// Render all valid events.
+	CAER_POLARITY_ITERATOR_VALID_START((caerPolarityEventPacket) polarityEventPacketHeader)
+		if (caerPolarityEventGetPolarity(caerPolarityIteratorElement)) {
+			// ON polarity (green).
+			al_put_pixel(caerPolarityEventGetX(caerPolarityIteratorElement),
+				caerPolarityEventGetY(caerPolarityIteratorElement), al_map_rgb(0, 255, 0));
+		}
+		else {
+			// OFF polarity (red).
+			al_put_pixel(caerPolarityEventGetX(caerPolarityIteratorElement),
+				caerPolarityEventGetY(caerPolarityIteratorElement), al_map_rgb(255, 0, 0));
+		}CAER_POLARITY_ITERATOR_VALID_END
+
+	return (true);
+}
+
 bool caerVisualizerRendererFrameEvents(caerVisualizerState state, caerEventPacketHeader frameEventPacketHeader) {
 	UNUSED_ARGUMENT(state);
 

@@ -62,6 +62,7 @@
 #endif
 #ifdef ENABLE_OPTICFLOW
 #include "modules/opticflow/opticflow.h"
+#include "modules/opticflow/flowEvent.h"
 #endif
 #ifdef ENABLE_STATISTICS
 #include "modules/statistics/statistics.h"
@@ -93,6 +94,8 @@ static bool mainloop_1(void) {
 	caerPolarityEventPacket polarity = NULL;
 	caerFrameEventPacket frame = NULL;
 	caerIMU6EventPacket imu = NULL;
+
+	FlowEventPacket flow = NULL;
 
 	// Input modules grab data from outside sources (like devices, files, ...)
 	// and put events into an event packet.
@@ -160,7 +163,9 @@ static bool mainloop_1(void) {
 
 	// Computes optic flow from events
 #ifdef ENABLE_OPTICFLOW
-	caerOpticFlowFilter(2, polarity); //TODO update once new functionality is implemented
+	flow = flowEventPacketInitFromPolarity(polarity);
+	caerOpticFlowFilter(2, flow);
+	flowEventPacketFree(flow);
 #endif
 
 	//Enable camera pose estimation
@@ -169,7 +174,7 @@ static bool mainloop_1(void) {
 #endif
 
 	// A simple visualizer exists to show what the output looks like.
-#ifdef ENABLE_VISUALIZER
+#if defined(ENABLE_VISUALIZER)
 	caerVisualizer(60, "Polarity", &caerVisualizerRendererPolarityEvents, NULL, (caerEventPacketHeader) polarity);
 	caerVisualizer(61, "Frame", &caerVisualizerRendererFrameEvents, NULL, (caerEventPacketHeader) frame);
 	caerVisualizer(62, "IMU6", &caerVisualizerRendererIMU6Events, NULL, (caerEventPacketHeader) imu);

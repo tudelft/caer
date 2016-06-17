@@ -3,7 +3,7 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
 
 # General build settings
 IF (NOT CMAKE_BUILD_TYPE)
-	SET(CMAKE_BUILD_TYPE "Release" CACHE STRING "Possible build types: None Debug Release RelWithDebInfo MinSizeRel")
+	SET(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Possible build types: None Debug Release RelWithDebInfo MinSizeRel")
 ENDIF()
 
 IF (NOT USE_TCMALLOC)
