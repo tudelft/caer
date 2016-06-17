@@ -14,8 +14,8 @@ typedef struct  {
 	int64_t dtMin;
 	int64_t dtMax;
 	uint16_t dx;
-	double thr1;
-	double thr2;
+	float thr1;
+	float thr2;
 } FlowBenosman2014Params;
 
 void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,

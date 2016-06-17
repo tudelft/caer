@@ -9,7 +9,7 @@
 struct flow_event {
 	uint32_t data;
 	int64_t timestamp;
-	double u,v;
+	float u,v;
 	bool hasFlow;
 }__attribute__((__packed__));
 

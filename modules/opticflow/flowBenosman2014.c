@@ -15,7 +15,7 @@
 #include "flowEvent.h"
 
 #define MAX_NUMBER_OF_EVENTS 50
-#define DBL_ZERO_EPSILON 1.0E-10
+#define FLT_ZERO_EPSILON 1.0E-10f
 
 
 /*
@@ -130,7 +130,7 @@ void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 
 	// Compute determinant and check invertibility
 	double D = n*sx2*sy2 - sy2*sx*sx + 2*sx*sxy*sy - n*sxy*sxy - sx2*sy*sy;
-	if (fabs(D) < DBL_ZERO_EPSILON) { // determinant too small: singular system
+	if (fabs(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
 	    return;
 	}
 	// Compute plane parameters
@@ -139,8 +139,8 @@ void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 	double d = 1/D*(sxt*(sx*sy2 - sxy*sy) - st*(- sxy*sxy + sx2*sy2) - syt*(sx*sxy - sx2*sy));
 
 	// Iterative outlier rejection
-	double eps = 1.0E6;
-	while (eps > (double) params.thr1) {
+	float eps = 1.0E6f;
+	while (eps > params.thr1) {
 		for (i = 1; i < n; i++) {
 			if (!isUsed[i]) { // already rejected points are skipped
 				continue;
@@ -164,7 +164,7 @@ void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 			return;
 		}
 		D = n*sx2*sy2 - sy2*sx*sx + 2*sx*sxy*sy - n*sxy*sxy - sx2*sy*sy;
-		if (fabs(D) < DBL_ZERO_EPSILON) { // determinant too small: singular system
+		if (fabs(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
 			return;
 		}
 		// Compute plane parameters
