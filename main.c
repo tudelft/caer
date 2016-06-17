@@ -121,6 +121,7 @@
 
 #ifdef ENABLE_OPTICFLOW
 #include "modules/opticflow/opticflow.h"
+#include "modules/opticflow/flowEvent.h"
 #endif
 
 static bool mainloop_1(void);
@@ -224,7 +225,9 @@ static bool mainloop_1(void) {
 
 	// Computes optic flow from events
 #ifdef ENABLE_OPTICFLOW
-	caerOpticFlowFilter(2, polarity); //TODO update once new functionality is implemented
+	flow = flowEventPacketInitFromPolarity(polarity);
+	caerOpticFlowFilter(2, flow);
+	flowEventPacketFree(flow);
 #endif
 
 	// Fitler that maps polarity dvs events as spiking inputs of the dynapse processor

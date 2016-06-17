@@ -33,10 +33,13 @@
  */
 void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 		FlowBenosman2014Params params) {
-	uint16_t x = e->x;
-	uint16_t y = e->y;
+//	uint16_t x = e->x;
+//	uint16_t y = e->y;
 	int64_t  t = e->timestamp;
-	bool 	 p = e->p;
+//	bool 	 p = e->p;
+	uint16_t x = caerPolarityEventGetX((caerPolarityEvent) e);
+	uint16_t y = caerPolarityEventGetX((caerPolarityEvent) e);;
+	bool 	 p = (bool) caerPolarityEventGetPolarity((caerPolarityEvent) e);
 	uint16_t xMin = (uint16_t) (x - params.dx/2);
 	uint16_t xMax = (uint16_t) (x + params.dx/2);
 	uint16_t yMin = (uint16_t) (y - params.dx/2);
@@ -89,7 +92,8 @@ void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 					break;
 				}
 				FlowEvent eB = &buffer->buffer[xx][yy][i];
-				if (eB->p != p) {
+				bool pB = (bool) caerPolarityEventGetPolarity((caerPolarityEvent) eB);
+				if (pB != p) {
 					continue;
 				}
 				int64_t tt = eB->timestamp;
