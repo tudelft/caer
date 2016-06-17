@@ -47,8 +47,8 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	sshsNodePutLongIfAbsent(moduleData->moduleNode, "dtMin", 3000);
 	sshsNodePutLongIfAbsent(moduleData->moduleNode, "dtMax", 100000);
 	sshsNodePutIntIfAbsent(moduleData->moduleNode, "dx", 3);
-	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "thr1", 1E-5);
-	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "thr2", 5e-3);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "thr1", 1E5f);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "thr2", 5e3f);
 	sshsNodePutByteIfAbsent(moduleData->moduleNode, "subSampleBy", 0);
 
 	OpticFlowFilterState state = moduleData->moduleState;
@@ -82,7 +82,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 
 	// If the map is not allocated yet, do it.
 	if (state->buffer == NULL) {
-		if (!allocateBuffer(state, caerEventPacketHeaderGetEventSource(&flow->packetHeader))) {
+		if (!allocateBuffer(state, caerEventPacketHeaderGetEventSource(flow))) {
 			// Failed to allocate memory, nothing to do.
 			caerLog(CAER_LOG_ERROR, moduleData->moduleSubSystemString, "Failed to allocate memory for timestampMap.");
 			return;
@@ -93,9 +93,9 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 
 	// Iterate over events and filter out ones that are not supported by other
 	// events within a certain region in the specified timeframe.
-	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(&(flow)->packetHeader); i++) {
+	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(flow); i++) {
 
-		FlowEvent e = caerPolarityEventPacketGetEvent((caerPolarityEventPacket)flow, i);
+		FlowEvent e = &(flow->events[i]);
 		if (!caerPolarityEventIsValid(e)) { continue; } // Skip invalid polarity events.
 
 		// Compute optic flow using events in buffer
@@ -109,7 +109,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			counter++;
 		}
 	}
-	printf("Number of flow events: %i\n",counter);
+//	printf("Number of flow events: %i\n",counter);
 }
 
 static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
@@ -117,8 +117,8 @@ static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
 
 	OpticFlowFilterState state = moduleData->moduleState;
 
-	state->params.dtMin = sshsNodeGetInt(moduleData->moduleNode, "dtMin");
-	state->params.dtMax = sshsNodeGetInt(moduleData->moduleNode, "dtMax");
+	state->params.dtMin = sshsNodeGetLong(moduleData->moduleNode, "dtMin");
+	state->params.dtMax = sshsNodeGetLong(moduleData->moduleNode, "dtMax");
 	state->params.dx 	= (uint16_t)sshsNodeGetInt(moduleData->moduleNode, "dx");
 	state->params.thr1  = sshsNodeGetDouble(moduleData->moduleNode, "thr1");
 	state->params.thr2  = sshsNodeGetDouble(moduleData->moduleNode, "thr2");

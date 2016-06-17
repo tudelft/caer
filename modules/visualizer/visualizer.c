@@ -780,25 +780,38 @@ bool caerVisualizerRendererPolarityEvents(caerVisualizerState state, caerEventPa
 	return (true);
 }
 
-bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacketHeader polarityEventPacketHeader) {
+bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacketHeader flowEventPacketHeader) {
 	UNUSED_ARGUMENT(state);
 
-	if (caerEventPacketHeaderGetEventValid(polarityEventPacketHeader) == 0) {
+	FlowEventPacket flow = (FlowEventPacket) flowEventPacketHeader;
+
+	if (caerEventPacketHeaderGetEventValid(flowEventPacketHeader) == 0) {
 		return (false);
 	}
 
 	// Render all valid events.
-	CAER_POLARITY_ITERATOR_VALID_START((caerPolarityEventPacket) polarityEventPacketHeader)
-		if (caerPolarityEventGetPolarity(caerPolarityIteratorElement)) {
+	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(flowEventPacketHeader); i++) {
+		FlowEvent e = &(flow->events[i]);
+		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid polarity events.
+		if (caerPolarityEventGetPolarity((caerPolarityEvent) e)) {
 			// ON polarity (green).
-			al_put_pixel(caerPolarityEventGetX(caerPolarityIteratorElement),
-				caerPolarityEventGetY(caerPolarityIteratorElement), al_map_rgb(0, 255, 0));
+			al_put_pixel(caerPolarityEventGetX((caerPolarityEvent)e),
+				caerPolarityEventGetY((caerPolarityEvent)e), al_map_rgb(0, 255, 0));
 		}
 		else {
 			// OFF polarity (red).
-			al_put_pixel(caerPolarityEventGetX(caerPolarityIteratorElement),
-				caerPolarityEventGetY(caerPolarityIteratorElement), al_map_rgb(255, 0, 0));
-		}CAER_POLARITY_ITERATOR_VALID_END
+			al_put_pixel(caerPolarityEventGetX((caerPolarityEvent)e),
+				caerPolarityEventGetY((caerPolarityEvent)e), al_map_rgb(255, 0, 0));
+		}
+		if (e->hasFlow) {
+			uint16_t x = caerPolarityEventGetX(e);
+			float x1 = (float) caerPolarityEventGetX(e);
+			float y1 = (float) caerPolarityEventGetY(e);
+			float x2 = x1 + e->u * 1000000;
+			float y2 = y1 + e->v * 1000000;
+			al_draw_line(x1,y1,x2,y2, al_map_rgb(255, 255, 255),1);
+		}
+	}
 
 	return (true);
 }

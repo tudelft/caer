@@ -9,6 +9,8 @@
 #include <libcaer/events/point2d.h>
 #include <allegro5/allegro.h>
 
+#include "modules/opticflow/flowEvent.h"
+
 #define VISUALIZER_DEFAULT_ZOOM 2.0f
 #define VISUALIZER_REFRESH_RATE 60.0f
 
@@ -24,6 +26,7 @@ void caerVisualizerUpdate(caerVisualizerState state, caerEventPacketHeader packe
 void caerVisualizerExit(caerVisualizerState state);
 
 bool caerVisualizerRendererPolarityEvents(caerVisualizerState state, caerEventPacketHeader polarityEventPacketHeader);
+bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacketHeader flowEventPacketHeader);
 bool caerVisualizerRendererFrameEvents(caerVisualizerState state, caerEventPacketHeader frameEventPacketHeader);
 bool caerVisualizerRendererIMU6Events(caerVisualizerState state, caerEventPacketHeader imu6EventPacketHeader);
 bool caerVisualizerRendererPoint2DEvents(caerVisualizerState state, caerEventPacketHeader point2DEventPacketHeader);
