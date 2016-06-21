@@ -299,6 +299,7 @@ void caerVisualizerUpdate(caerVisualizerState state, caerEventPacketHeader packe
 	}
 
 	caerEventPacketHeader packetHeaderCopy = caerCopyEventPacketOnlyEvents(packetHeader);
+
 	if (packetHeaderCopy == NULL) {
 		if (caerEventPacketHeaderGetEventNumber(packetHeader) == 0) {
 			caerLog(CAER_LOG_NOTICE, state->parentModule->moduleSubSystemString,
@@ -789,7 +790,7 @@ bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacket
 		return (false);
 	}
 
-	// Render all valid events.
+	// Render valid events.
 	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(flowEventPacketHeader); i++) {
 		FlowEvent e = &(flow->events[i]);
 		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid polarity events.
@@ -803,16 +804,15 @@ bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacket
 			al_put_pixel(caerPolarityEventGetX((caerPolarityEvent)e),
 				caerPolarityEventGetY((caerPolarityEvent)e), al_map_rgb(255, 0, 0));
 		}
+		// Flow rendering
 		if (e->hasFlow) {
-			uint16_t x = caerPolarityEventGetX(e);
-			float x1 = (float) caerPolarityEventGetX(e);
-			float y1 = (float) caerPolarityEventGetY(e);
-			float x2 = x1 + e->u * 1000000;
-			float y2 = y1 + e->v * 1000000;
+			float x1 = caerPolarityEventGetX((caerPolarityEvent) e);
+			float y1 = caerPolarityEventGetY((caerPolarityEvent) e);
+			float x2 = x1 + (float) e->u * 1e6f; // scaling to convert pixels/us to pixels/s
+			float y2 = y1 + (float) e->v * 1e6f;
 			al_draw_line(x1,y1,x2,y2, al_map_rgb(255, 255, 255),1);
 		}
 	}
-
 	return (true);
 }
 
