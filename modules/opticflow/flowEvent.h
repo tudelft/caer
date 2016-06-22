@@ -11,6 +11,11 @@
 /**
  * The flow event is a custom event type that 'extends' the polarity
  * event type defined in libcaer, having address/timestamp data.
+ * Hence, all basic get/set functions for the polarity event work equally
+ * for this new event type.
+ *
+ * Note that the timestamp in this variable is 64 bits.
+ *
  * It is augmented with three variables:
  * - u,v, which indicate horizontal/vertical optical flow speed
  * - hasFlow, a flag indicating that flow has been assigned to this event.
@@ -22,6 +27,9 @@ struct flow_event {
 	bool hasFlow;
 }__attribute__((__packed__));
 
+/**
+ * Pointer to flow event.
+*/
 typedef struct flow_event *FlowEvent;
 
 /**
@@ -37,6 +45,9 @@ struct flow_event_packet {
 	struct flow_event* events;
 }__attribute__((__packed__));
 
+/**
+ * Pointer to flow event packet.
+*/
 typedef struct flow_event_packet *FlowEventPacket;
 
 /**
@@ -51,10 +62,16 @@ struct flow_event_buffer {
 	size_t size;
 }__attribute__((__packed__));
 
+/**
+ * Pointer to flow event buffer.
+*/
 typedef struct flow_event_buffer *FlowEventBuffer;
 
 
-
+/**
+ *  Flow event initialization. By default, a flow event is not assigned
+ *  any optic flow value.
+*/
 static inline struct flow_event flowEventInit(uint32_t data, int64_t timestamp) {
 	struct flow_event e;
 	e.data = data;
@@ -65,12 +82,18 @@ static inline struct flow_event flowEventInit(uint32_t data, int64_t timestamp) 
 	return (e);
 }
 
+/**
+ *  Flow event initialization from an existing polarity event.
+*/
 static inline struct flow_event flowEventInitFromPolarity(caerPolarityEvent polarity, caerPolarityEventPacket packet) {
 	uint32_t data = polarity->data;
 	int64_t  timestamp = caerPolarityEventGetTimestamp64(polarity,packet);
 	return (flowEventInit(data,timestamp));
 }
 
+/**
+ *  Flow event initialization from x,y coordinates, timestamp, and polarity.
+*/
 static inline struct flow_event flowEventInitXYTP(uint16_t x, uint16_t y, int32_t t, bool p) {
 	struct flow_event e;
 	caerPolarityEventSetX((caerPolarityEvent) &e, x);
@@ -117,6 +140,9 @@ static inline FlowEventPacket flowEventPacketInitFromPolarity(caerPolarityEventP
 	return (flow);
 }
 
+/**
+ * Obtain a flow event from a packet, checking the index limits of the packet.
+*/
 static inline FlowEvent flowEventPacketGetEvent(FlowEventPacket packet, int32_t n) {
 	// Check that we're not out of bounds.
 	if (n < 0 || n >= caerEventPacketHeaderGetEventCapacity(&packet->packetHeader)) {
@@ -131,6 +157,9 @@ static inline FlowEvent flowEventPacketGetEvent(FlowEventPacket packet, int32_t 
 	return (packet->events + n);
 }
 
+/**
+ * Free flow event packet memory.
+*/
 static inline void flowEventPacketFree(FlowEventPacket flow) {
 	if (flow != NULL) {
 		free(flow->events);
@@ -138,6 +167,10 @@ static inline void flowEventPacketFree(FlowEventPacket flow) {
 	}
 }
 
+/**
+ * Memory allocation and initialization of a flow event buffer.
+ * The events in the buffer are initialized with zero timestamp and negative polarity.
+*/
 static inline FlowEventBuffer flowEventBufferInit(size_t width, size_t height, size_t size) {
 	FlowEventBuffer buffer = malloc(sizeof(*buffer) + (width * sizeof(struct flow_event *)));
 	buffer->sizeX = width;
@@ -158,6 +191,13 @@ static inline FlowEventBuffer flowEventBufferInit(size_t width, size_t height, s
 	return (buffer);
 }
 
+/**
+ * Add a flow event event to a buffer, checking the buffer bounds.
+ * With each new event, the previously added events on a pixel location
+ * are shifted forward in time.
+ *
+ * Returns true if successful, false if the event cannot be added to the buffer.
+*/
 static inline bool flowEventBufferAdd(FlowEvent e, FlowEventBuffer buffer) {
 	// TODO make buffer update more efficient for larger buffer size,
 	// 		e.g. by using a ring buffer structure
@@ -181,6 +221,9 @@ static inline bool flowEventBufferAdd(FlowEvent e, FlowEventBuffer buffer) {
 	return (true);
 }
 
+/**
+ * Finds the content of a flow event buffer at a specified location, and returns a pointer to the event.
+ */
 static inline FlowEvent flowEventBufferRead(FlowEventBuffer buffer, uint16_t x, uint16_t y, uint16_t i) {
 	if (x > buffer->sizeX) {
 		caerLog(CAER_LOG_ALERT,"FLOW: ", "Event buffer read access out of bounds: x=%i\n", x);
@@ -197,6 +240,9 @@ static inline FlowEvent flowEventBufferRead(FlowEventBuffer buffer, uint16_t x, 
 	return (&(buffer->buffer[x][y][i]));
 }
 
+/**
+ * Free the memory of a flow event buffer.
+ */
 static inline void flowEventBufferFree(FlowEventBuffer buffer) {
 	if (buffer != NULL) {
 		uint16_t i,j;
