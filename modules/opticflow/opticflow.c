@@ -5,8 +5,6 @@
  *      Author: bas
  */
 
-// NOTE: currently this module should do exactly what the BA filter does
-
 #include "opticflow.h"
 #include "base/mainloop.h"
 #include "base/module.h"

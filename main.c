@@ -227,8 +227,8 @@ static bool mainloop_1(void) {
 	// Computes optic flow from events
 #ifdef ENABLE_OPTICFLOW
 	flow = flowEventPacketInitFromPolarity(polarity);
-	caerOpticFlowFilter(2, flow);
-	//caerVisualizer(60, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
+	caerOpticFlowFilter(20, flow);
+	//caerVisualizer(63, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
 	flowEventPacketFree(flow);
 #endif
 

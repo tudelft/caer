@@ -17,19 +17,7 @@
 #define MAX_NUMBER_OF_EVENTS 100
 #define DBL_ZERO_EPSILON 1.0E-10
 
-/*
-	 In this implementation the plane is described by three parameters in the equation:
-	 	 a*x + b*y + t + d = 0
 
-	 The parameters a,b,d are computed through ordinary least squares:
-	 	 A'*A*[a b d]' = A'*t
-	 For efficient computation and iterative refinement, the solution is computed manually.
-	 To do this, the entries of the matrices (with e.g. sx2 := Sum^{n}_{i=0} x[i]^2 )
-	 	 A'*A = [sx2 sxy sx; sxy sy2 sy; sx sy n]
-	 and
-	 	 A'*t = [sxt; syt; st]
-	 are precomputed. Thus, when an outlier is to be rejected, we only decrement the sum values.
- */
 void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 		FlowBenosman2014Params params) {
 	int64_t  t = e->timestamp;
