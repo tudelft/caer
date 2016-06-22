@@ -217,7 +217,7 @@ static inline bool flowEventBufferAdd(FlowEvent e, FlowEventBuffer buffer) {
 	for (i = buffer->size-1; i > 0 ; i--) {
 		buffer->buffer[x][y][i] = buffer->buffer[x][y][i-1];
 	}
-	buffer->buffer[x][y][0] = *e;
+	buffer->buffer[x][y][0] = *e; // copy the event
 	return (true);
 }
 
