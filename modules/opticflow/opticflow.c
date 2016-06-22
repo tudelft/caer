@@ -11,12 +11,15 @@
 #include "ext/buffers.h"
 #include "flowEvent.h"
 #include "flowBenosman2014.h"
+#include "flowRegularizationFilter.h"
 
 #define FLOW_BUFFER_SIZE 3
 
 struct OpticFlowFilter_state {
 	FlowEventBuffer buffer;
-	FlowBenosman2014Params params;
+	FlowBenosman2014Params flowParams;
+	FlowRegularizationFilterParams filterParams;
+	bool enableFlowRegularization;
 	int8_t subSampleBy;
 	double meanU, meanV;
 };
@@ -43,20 +46,34 @@ void caerOpticFlowFilter(uint16_t moduleID, FlowEventPacket flow) {
 }
 
 static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
-	sshsNodePutLongIfAbsent(moduleData->moduleNode, "dtMin", 3000);
-	sshsNodePutLongIfAbsent(moduleData->moduleNode, "dtMax", 100000);
-	sshsNodePutIntIfAbsent(moduleData->moduleNode, "dx", 5);
-	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "thr1", 1E5);
-	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "thr2", 5E3);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMin", 3000);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMax", 300000);
+	sshsNodePutIntIfAbsent(moduleData->moduleNode,  "flow_dx", 3);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "flow_thr1", 1E5);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "flow_thr2", 5E3);
+
+	sshsNodePutBoolIfAbsent(moduleData->moduleNode, "filter_enable",true);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "filter_dtMax", 300000);
+	sshsNodePutIntIfAbsent(moduleData->moduleNode,  "filter_dx", 3);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "filter_dMag", 1.0);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "filter_dAngle", 20);
+
 	sshsNodePutByteIfAbsent(moduleData->moduleNode, "subSampleBy", 0);
 
 	OpticFlowFilterState state = moduleData->moduleState;
 
-	state->params.dtMin = sshsNodeGetLong(moduleData->moduleNode, "dtMin");
-	state->params.dtMax = sshsNodeGetLong(moduleData->moduleNode, "dtMax");
-	state->params.dx 	= (uint16_t) sshsNodeGetInt(moduleData->moduleNode, "dx");
-	state->params.thr1  = sshsNodeGetDouble(moduleData->moduleNode, "thr1");
-	state->params.thr2  = sshsNodeGetDouble(moduleData->moduleNode, "thr2");
+	state->flowParams.dtMin = sshsNodeGetLong(moduleData->moduleNode, "flow_dtMin");
+	state->flowParams.dtMax = sshsNodeGetLong(moduleData->moduleNode, "flow_dtMax");
+	state->flowParams.dx 	= (uint16_t) sshsNodeGetInt(moduleData->moduleNode, "flow_dx");
+	state->flowParams.thr1  = sshsNodeGetDouble(moduleData->moduleNode, "flow_thr1");
+	state->flowParams.thr2  = sshsNodeGetDouble(moduleData->moduleNode, "flow_thr2");
+
+	state->enableFlowRegularization = sshsNodeGetBool(moduleData->moduleNode, "filter_enable");
+	state->filterParams.dtMax = sshsNodeGetLong(moduleData->moduleNode, "filter_dtMax");
+	state->filterParams.dx = (uint16_t) sshsNodeGetInt(moduleData->moduleNode, "filter_dx");
+	state->filterParams.maxSpeedFactor = sshsNodeGetDouble(moduleData->moduleNode, "filter_dMag");
+	state->filterParams.maxAngle = sshsNodeGetDouble(moduleData->moduleNode, "filter_dAngle");
+
 	state->subSampleBy = sshsNodeGetByte(moduleData->moduleNode, "subSampleBy");
 
 	state->meanU = 0;
@@ -98,10 +115,15 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid polarity events.
 
 		// Compute optic flow using events in buffer
-		flowBenosman2014(e,state->buffer,state->params);
+		flowBenosman2014(e,state->buffer,state->flowParams);
 
 		// Add event to buffer
 		flowEventBufferAdd(e,state->buffer);
+
+		// Apply flow regularization filter
+		if (state->enableFlowRegularization) {
+			flowRegularizationFilter(e,state->buffer,state->filterParams);
+		}
 
 		// For now, count events in packet and output how many have flow
 		if (e->hasFlow) {
@@ -109,8 +131,6 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			state->meanV += (e->v*1000000-state->meanV)/1000;
 		}
 	}
-	fprintf(stdout, "\rMean u: %f, Mean v: %f", state->meanU, state->meanV);
-	fflush(stdout);
 }
 
 static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
@@ -118,11 +138,18 @@ static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
 
 	OpticFlowFilterState state = moduleData->moduleState;
 
-	state->params.dtMin = sshsNodeGetLong(moduleData->moduleNode, "dtMin");
-	state->params.dtMax = sshsNodeGetLong(moduleData->moduleNode, "dtMax");
-	state->params.dx 	= (uint16_t)sshsNodeGetInt(moduleData->moduleNode, "dx");
-	state->params.thr1  = sshsNodeGetDouble(moduleData->moduleNode, "thr1");
-	state->params.thr2  = sshsNodeGetDouble(moduleData->moduleNode, "thr2");
+	state->flowParams.dtMin = sshsNodeGetLong(moduleData->moduleNode, "flow_dtMin");
+	state->flowParams.dtMax = sshsNodeGetLong(moduleData->moduleNode, "flow_dtMax");
+	state->flowParams.dx 	= (uint16_t) sshsNodeGetInt(moduleData->moduleNode, "flow_dx");
+	state->flowParams.thr1  = sshsNodeGetDouble(moduleData->moduleNode, "flow_thr1");
+	state->flowParams.thr2  = sshsNodeGetDouble(moduleData->moduleNode, "flow_thr2");
+
+	state->enableFlowRegularization = sshsNodeGetBool(moduleData->moduleNode, "filter_enable");
+	state->filterParams.dtMax = sshsNodeGetLong(moduleData->moduleNode, "filter_dtMax");
+	state->filterParams.dx = (uint16_t) sshsNodeGetInt(moduleData->moduleNode, "filter_dx");
+	state->filterParams.maxSpeedFactor = sshsNodeGetDouble(moduleData->moduleNode, "filter_dMag");
+	state->filterParams.maxAngle = sshsNodeGetDouble(moduleData->moduleNode, "filter_dAngle");
+
 	state->subSampleBy = sshsNodeGetByte(moduleData->moduleNode, "subSampleBy");
 }
 
