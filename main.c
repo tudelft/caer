@@ -18,6 +18,8 @@
 #include "base/log.h"
 #include "base/mainloop.h"
 #include "base/misc.h"
+#include <libcaer/events/frame.h>
+#include <libcaer/events/imu6.h>
 
 // Devices support.
 #ifdef DVS128
@@ -165,7 +167,9 @@ static bool mainloop_1(void) {
 #ifdef ENABLE_OPTICFLOW
 	flow = flowEventPacketInitFromPolarity(polarity);
 	caerOpticFlowFilter(20, flow);
-	caerVisualizer(63, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
+	#ifdef ENABLE_VISUALIZER
+		caerVisualizer(63, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
+	#endif
 	flowEventPacketFree(flow);
 #endif
 

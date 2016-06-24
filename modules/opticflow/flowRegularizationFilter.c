@@ -28,6 +28,8 @@ void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
 	double angle = atan2(e->v,e->u);
 	double rejectMagnitudeDifference = magnitude * params.maxSpeedFactor;
 	double rejectAngleDifference = DEG2RAD * params.maxSpeedFactor; // we work with radians
+	double magnitudeMean = magnitude;
+	double angleMean = angle;
 
 	// Bounds checking
 	if (xMin > buffer->sizeX-1) {
@@ -72,6 +74,8 @@ void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
 					break;
 				}
 				n++;
+				magnitudeMean += magnitudeDifference/n;
+				angleMean += angleDifference/n;
 				break; // only consider last found flow vector
 			}
 		}
@@ -79,4 +83,6 @@ void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
 	if (n == 0) { // no neighbor support
 		e->hasFlow = false;
 	}
+	e->u = cos(angleMean)*magnitudeMean;
+	e->v = sin(angleMean)*magnitudeMean;
 }

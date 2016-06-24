@@ -810,7 +810,11 @@ bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacket
 			float y1 = caerPolarityEventGetY((caerPolarityEvent) e);
 			float x2 = x1 + (float) e->u * 1e6f; // scaling to convert pixels/us to pixels/s
 			float y2 = y1 + (float) e->v * 1e6f;
-			al_draw_line(x1,y1,x2,y2, al_map_rgb(255, 255, 255),1);
+			float angle = (float) (atan2(e->v,e->u)/(2*M_PI)+0.5);
+			al_draw_line(x1,y1,x2,y2, al_map_rgb(
+					(unsigned char) (255*angle),
+					(unsigned char) (255*(1-angle)),
+					(unsigned char) (255*(1/(1+10*angle)))),1);
 		}
 	}
 	return (true);

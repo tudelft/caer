@@ -161,6 +161,10 @@ void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 	double scaleFactor = -1.0/(a*a+b*b);
 	double u = scaleFactor*a;
 	double v = scaleFactor*b;
+	// Check for NaN value
+	if (isnan(u) || isnan(v)) {
+		return;
+	}
 
 	// Reject if magnitude is too large
 	if (1.0/sqrt(u*u+v*v) < params.dtMin) {
