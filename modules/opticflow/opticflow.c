@@ -9,19 +9,26 @@
 #include "base/mainloop.h"
 #include "base/module.h"
 #include "ext/buffers.h"
+#include "ext/portable_time.h"
 #include "flowEvent.h"
 #include "flowBenosman2014.h"
 #include "flowRegularizationFilter.h"
 
 #define FLOW_BUFFER_SIZE 3
+#define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1e6/115.0
+
+struct timespec timeInit;
+int64_t timeInitEvent = 0;
+bool timeSet = 0;
 
 struct OpticFlowFilter_state {
 	FlowEventBuffer buffer;
 	FlowBenosman2014Params flowParams;
 	FlowRegularizationFilterParams filterParams;
 	bool enableFlowRegularization;
+	int64_t refractoryPeriod;
 	int8_t subSampleBy;
-	double meanU, meanV;
+	double wx, wy;
 };
 
 typedef struct OpticFlowFilter_state *OpticFlowFilterState;
@@ -46,6 +53,8 @@ void caerOpticFlowFilter(uint16_t moduleID, FlowEventPacket flow) {
 }
 
 static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "refractoryPeriod", 10000);
+
 	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMin", 3000);
 	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMax", 300000);
 	sshsNodePutIntIfAbsent(moduleData->moduleNode,  "flow_dx", 3);
@@ -62,6 +71,8 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 
 	OpticFlowFilterState state = moduleData->moduleState;
 
+	state->refractoryPeriod = sshsNodeGetLong(moduleData->moduleNode, "refractoryPeriod");
+
 	state->flowParams.dtMin = sshsNodeGetLong(moduleData->moduleNode, "flow_dtMin");
 	state->flowParams.dtMax = sshsNodeGetLong(moduleData->moduleNode, "flow_dtMax");
 	state->flowParams.dx 	= (uint16_t) sshsNodeGetInt(moduleData->moduleNode, "flow_dx");
@@ -76,8 +87,8 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 
 	state->subSampleBy = sshsNodeGetByte(moduleData->moduleNode, "subSampleBy");
 
-	state->meanU = 0;
-	state->meanV = 0;
+	state->wx = 0;
+	state->wy = 0;
 
 	// Add config listeners last, to avoid having them dangling if Init doesn't succeed.
 	sshsNodeAddAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
@@ -107,11 +118,20 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			return;
 		}
 	}
-
+	FlowEvent e;
 	// Iterate over events and filter out ones that are not supported by other
 	// events within a certain region in the specified timeframe.
 	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber((caerEventPacketHeader) flow); i++) {
-		FlowEvent e = flowEventPacketGetEvent(flow,i);
+		e = flowEventPacketGetEvent(flow,i);
+		uint16_t x = caerPolarityEventGetX((caerPolarityEvent) e);
+		uint16_t y = caerPolarityEventGetY((caerPolarityEvent) e);
+		// Refractory period
+		if (e->timestamp - flowEventBufferRead(state->buffer,x,y,0)->timestamp
+				< state->refractoryPeriod) {
+			caerPolarityEventInvalidate((caerPolarityEvent) e,
+					(caerPolarityEventPacket) flow);
+		}
+
 		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid polarity events.
 
 		// Compute optic flow using events in buffer
@@ -127,16 +147,42 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 
 		// For now, count events in packet and output how many have flow
 		if (e->hasFlow) {
-			state->meanU += (e->u*1000000-state->meanU)/1000;
-			state->meanV += (e->v*1000000-state->meanV)/1000;
+			double wxNew = e->u*DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW;
+			double wyNew = e->v*DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW;
+			state->wx += (wxNew-state->wx)/50;
+			state->wy += (wyNew-state->wy)/50;
 		}
 	}
+	struct timespec currentTime;
+	portable_clock_gettime_monotonic(&currentTime);
+	int64_t timeEvent = e->timestamp;
+	int64_t delay = 0;
+	if (!timeSet || timeEvent < timeInitEvent) {
+		timeInit = currentTime;
+		timeInitEvent = timeEvent;
+		timeSet = true;
+	}
+	else {
+		int64_t timeS = currentTime.tv_sec-timeInit.tv_sec;
+		int64_t timeUs = (currentTime.tv_nsec-timeInit.tv_nsec)/1000;
+		int64_t timeSystem = timeS*1000000 + timeUs;
+		delay = timeSystem - (timeEvent-timeInitEvent);
+		if (delay < 0) {
+			timeInitEvent -= delay;
+		}
+	}
+
+	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f   . timeDelay: %ld ",
+			state->wx, state->wy, delay/1000);
+	fflush(stdout);
 }
 
 static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
 	caerModuleConfigUpdateReset(moduleData);
 
 	OpticFlowFilterState state = moduleData->moduleState;
+
+	state->refractoryPeriod = sshsNodeGetLong(moduleData->moduleNode, "refractoryPeriod");
 
 	state->flowParams.dtMin = sshsNodeGetLong(moduleData->moduleNode, "flow_dtMin");
 	state->flowParams.dtMax = sshsNodeGetLong(moduleData->moduleNode, "flow_dtMax");
