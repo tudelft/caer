@@ -31,6 +31,9 @@ void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
 	double magnitudeMean = magnitude;
 	double angleMean = angle;
 
+	double uHat = cos(angle);
+	double vHat = sin(angle);
+
 	// Bounds checking
 	if (xMin > buffer->sizeX-1) {
 		xMin = 0; // In case of uint, cannot be zero.
@@ -61,11 +64,20 @@ void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
 				if (t-eB->timestamp > params.dtMax) {
 					break;
 				}
+				// Flow direction criterion
+				int dx = xx - x;
+				int dy = yy - y;
+				if (uHat*dx + vHat*dy > 0) {
+					break;
+				}
+
+				// Magnitude criterion
 				double magnitudeB = sqrt(eB->u*eB->u + eB->v*eB->v);
 				double magnitudeDifference = fabs(magnitude - magnitudeB);
 				if (magnitudeDifference > rejectMagnitudeDifference) {
 					break;
 				}
+				// Orientation criterion
 				double angleB = atan2(eB->v, eB->u);
 				double num = angle-angleB+M_PI;
 				int sig = (num > 0) - (num < 0);
@@ -74,6 +86,7 @@ void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
 					break;
 				}
 				n++;
+				// Recursive averaging of magnitude and angle
 				magnitudeMean += magnitudeDifference/n;
 				angleMean += angleDifference/n;
 				break; // only consider last found flow vector
