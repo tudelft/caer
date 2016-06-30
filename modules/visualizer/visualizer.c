@@ -299,6 +299,7 @@ void caerVisualizerUpdate(caerVisualizerState state, caerEventPacketHeader packe
 	}
 
 	caerEventPacketHeader packetHeaderCopy = caerCopyEventPacketOnlyEvents(packetHeader);
+
 	if (packetHeaderCopy == NULL) {
 		if (caerEventPacketHeaderGetEventNumber(packetHeader) == 0) {
 			caerLog(CAER_LOG_NOTICE, state->parentModule->moduleSubSystemString,
@@ -777,6 +778,47 @@ bool caerVisualizerRendererPolarityEvents(caerVisualizerState state, caerEventPa
 				caerPolarityEventGetY(caerPolarityIteratorElement), al_map_rgb(255, 0, 0));
 		}CAER_POLARITY_ITERATOR_VALID_END
 
+	return (true);
+}
+
+bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacketHeader flowEventPacketHeader) {
+	UNUSED_ARGUMENT(state);
+
+	FlowEventPacket flow = (FlowEventPacket) flowEventPacketHeader;
+
+	if (caerEventPacketHeaderGetEventValid(flowEventPacketHeader) == 0) {
+		return (false);
+	}
+
+	// Render valid events.
+	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(flowEventPacketHeader); i++) {
+		FlowEvent e = &(flow->events[i]);
+		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid polarity events.
+		if (caerPolarityEventGetPolarity((caerPolarityEvent) e)) {
+			// ON polarity (green).
+			al_put_pixel(caerPolarityEventGetX((caerPolarityEvent)e),
+				caerPolarityEventGetY((caerPolarityEvent)e), al_map_rgb(0, 255, 0));
+		}
+		else {
+			// OFF polarity (red).
+			al_put_pixel(caerPolarityEventGetX((caerPolarityEvent)e),
+				caerPolarityEventGetY((caerPolarityEvent)e), al_map_rgb(255, 0, 0));
+		}
+		// Flow rendering
+		if (e->hasFlow) {
+			float x1 = caerPolarityEventGetX((caerPolarityEvent) e);
+			float y1 = caerPolarityEventGetY((caerPolarityEvent) e);
+			float angle = (float) (atan2(e->v,e->u)/(2*M_PI)+0.5);
+			float magnitude = (float) sqrt(e->u*e->u + e->v*e->v);
+			float x2 = x1 + (float) e->u * 1e5f + 10*(float)e->u/magnitude; // scaling to convert pixels/us to pixels/s
+			float y2 = y1 + (float) e->v * 1e5f + 10*(float)e->v/magnitude;
+
+			al_draw_line(x1,y1,x2,y2, al_map_rgb(
+					(unsigned char) (255*angle),
+					(unsigned char) (255*(1-angle)),
+					(unsigned char) (255*(1/(1+10*angle)))),1);
+		}
+	}
 	return (true);
 }
 

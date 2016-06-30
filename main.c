@@ -18,6 +18,8 @@
 #include "base/log.h"
 #include "base/mainloop.h"
 #include "base/misc.h"
+#include <libcaer/events/frame.h>
+#include <libcaer/events/imu6.h>
 
 // Devices support.
 #ifdef DVS128
@@ -60,6 +62,10 @@
 #ifdef ENABLE_FRAMEENHANCER
 #include "modules/frameenhancer/frameenhancer.h"
 #endif
+#ifdef ENABLE_OPTICFLOW
+#include "modules/opticflow/opticflow.h"
+#include "modules/opticflow/flowEvent.h"
+#endif
 #ifdef ENABLE_STATISTICS
 #include "modules/statistics/statistics.h"
 #endif
@@ -90,6 +96,8 @@ static bool mainloop_1(void) {
 	caerPolarityEventPacket polarity = NULL;
 	caerFrameEventPacket frame = NULL;
 	caerIMU6EventPacket imu = NULL;
+
+	FlowEventPacket flow = NULL;
 
 	// Input modules grab data from outside sources (like devices, files, ...)
 	// and put events into an event packet.
@@ -141,7 +149,7 @@ static bool mainloop_1(void) {
 
 	// Filters can also extract information from event packets: for example
 	// to show statistics about the current event-rate.
-#ifdef ENABLE_STATISTICS
+#if defined(ENABLE_STATISTICS) && !defined(ENABLE_OPTICFLOW)
 	caerStatistics(3, (caerEventPacketHeader) polarity, 1000);
 #endif
 
@@ -155,6 +163,16 @@ static bool mainloop_1(void) {
 	caerCameraCalibration(5, polarity, frame);
 #endif
 
+	// Computes optic flow from events
+#ifdef ENABLE_OPTICFLOW
+	flow = flowEventPacketInitFromPolarity(polarity);
+	caerOpticFlowFilter(20, flow);
+	#ifdef ENABLE_VISUALIZER
+		caerVisualizer(63, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
+	#endif
+	flowEventPacketFree(flow);
+#endif
+
 	//Enable camera pose estimation
 #ifdef ENABLE_POSEESTIMATION
 	caerPoseCalibration(6, polarity, frame);
@@ -162,7 +180,9 @@ static bool mainloop_1(void) {
 
 	// A simple visualizer exists to show what the output looks like.
 #ifdef ENABLE_VISUALIZER
-	caerVisualizer(60, "Polarity", &caerVisualizerRendererPolarityEvents, NULL, (caerEventPacketHeader) polarity);
+	#ifndef ENABLE_OPTICFLOW
+		caerVisualizer(60, "Polarity", &caerVisualizerRendererPolarityEvents, NULL, (caerEventPacketHeader) polarity);
+	#endif
 	caerVisualizer(61, "Frame", &caerVisualizerRendererFrameEvents, NULL, (caerEventPacketHeader) frame);
 	caerVisualizer(62, "IMU6", &caerVisualizerRendererIMU6Events, NULL, (caerEventPacketHeader) imu);
 #endif
