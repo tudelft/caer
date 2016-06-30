@@ -149,7 +149,7 @@ static bool mainloop_1(void) {
 
 	// Filters can also extract information from event packets: for example
 	// to show statistics about the current event-rate.
-#ifdef ENABLE_STATISTICS
+#if defined(ENABLE_STATISTICS) && !defined(ENABLE_OPTICFLOW)
 	caerStatistics(3, (caerEventPacketHeader) polarity, 1000);
 #endif
 

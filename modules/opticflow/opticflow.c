@@ -8,7 +8,6 @@
 #include "opticflow.h"
 #include "base/mainloop.h"
 #include "base/module.h"
-#include "ext/buffers.h"
 #include "ext/portable_time.h"
 #include "flowEvent.h"
 #include "flowBenosman2014.h"
@@ -16,10 +15,6 @@
 
 #define FLOW_BUFFER_SIZE 3
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1e6/115.0
-
-struct timespec timeInit;
-int64_t timeInitEvent = 0;
-bool timeSet = 0;
 
 struct OpticFlowFilter_state {
 	FlowEventBuffer buffer;
@@ -29,6 +24,9 @@ struct OpticFlowFilter_state {
 	int64_t refractoryPeriod;
 	int8_t subSampleBy;
 	double wx, wy;
+	struct timespec timeInit;
+	int64_t timeInitEvent;
+	bool timeSet;
 };
 
 typedef struct OpticFlowFilter_state *OpticFlowFilterState;
@@ -38,6 +36,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 static void caerOpticFlowFilterConfig(caerModuleData moduleData);
 static void caerOpticFlowFilterExit(caerModuleData moduleData);
 static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID);
+static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent);
 
 static struct caer_module_functions caerOpticFlowFilterFunctions = { .moduleInit =
 	&caerOpticFlowFilterInit, .moduleRun = &caerOpticFlowFilterRun, .moduleConfig =
@@ -55,7 +54,7 @@ void caerOpticFlowFilter(uint16_t moduleID, FlowEventPacket flow) {
 static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	sshsNodePutLongIfAbsent(moduleData->moduleNode, "refractoryPeriod", 10000);
 
-	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMin", 3000);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMin", 3);
 	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMax", 300000);
 	sshsNodePutIntIfAbsent(moduleData->moduleNode,  "flow_dx", 3);
 	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "flow_thr1", 1E5);
@@ -90,6 +89,8 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	state->wx = 0;
 	state->wy = 0;
 
+	state->timeSet = false;
+
 	// Add config listeners last, to avoid having them dangling if Init doesn't succeed.
 	sshsNodeAddAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
 
@@ -118,21 +119,23 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			return;
 		}
 	}
-	FlowEvent e;
+
+	int64_t delay = 0;
+
 	// Iterate over events and filter out ones that are not supported by other
 	// events within a certain region in the specified timeframe.
 	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber((caerEventPacketHeader) flow); i++) {
-		e = flowEventPacketGetEvent(flow,i);
+		FlowEvent e = flowEventPacketGetEvent(flow,i);
+		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid events.
+
+		// Refractory period
 		uint16_t x = caerPolarityEventGetX((caerPolarityEvent) e);
 		uint16_t y = caerPolarityEventGetY((caerPolarityEvent) e);
-		// Refractory period
-		if (e->timestamp - flowEventBufferRead(state->buffer,x,y,0)->timestamp
-				< state->refractoryPeriod) {
+		FlowEvent eB = flowEventBufferRead(state->buffer,x,y,0);
+		if (e->timestamp - eB->timestamp < state->refractoryPeriod) {
 			caerPolarityEventInvalidate((caerPolarityEvent) e,
 					(caerPolarityEventPacket) flow);
 		}
-
-		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid polarity events.
 
 		// Compute optic flow using events in buffer
 		flowBenosman2014(e,state->buffer,state->flowParams);
@@ -152,27 +155,16 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			state->wx += (wxNew-state->wx)/50;
 			state->wy += (wyNew-state->wy)/50;
 		}
-	}
-	struct timespec currentTime;
-	portable_clock_gettime_monotonic(&currentTime);
-	int64_t timeEvent = e->timestamp;
-	int64_t delay = 0;
-	if (!timeSet || timeEvent < timeInitEvent) {
-		timeInit = currentTime;
-		timeInitEvent = timeEvent;
-		timeSet = true;
-	}
-	else {
-		int64_t timeS = currentTime.tv_sec-timeInit.tv_sec;
-		int64_t timeUs = (currentTime.tv_nsec-timeInit.tv_nsec)/1000;
-		int64_t timeSystem = timeS*1000000 + timeUs;
-		delay = timeSystem - (timeEvent-timeInitEvent);
-		if (delay < 0) {
-			timeInitEvent -= delay;
+
+		// Estimate time delay using last event
+		if (caerEventPacketHeaderGetEventNumber((caerEventPacketHeader) flow) - i == 1) {
+			delay = computeTimeDelay(state, e->timestamp);
 		}
 	}
 
-	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f   . timeDelay: %ld ",
+	// Print average optic flow and time delay
+	fprintf(stdout, "%c[2K", 27);
+	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. timeDelay: %ld",
 			state->wx, state->wy, delay/1000);
 	fflush(stdout);
 }
@@ -228,4 +220,27 @@ static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID) {
 
 	// TODO: size the map differently if subSampleBy is set!
 	return (true);
+}
+
+static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent) {
+	struct timespec currentTime;
+	portable_clock_gettime_monotonic(&currentTime);
+	if (!state->timeSet || timeEvent < state->timeInitEvent) {
+		state->timeInit = currentTime;
+		state->timeInitEvent = timeEvent;
+		state->timeSet = true;
+		return (0);
+	}
+	else {
+		int64_t timeS = currentTime.tv_sec - state->timeInit.tv_sec;
+		int64_t timeUs = (currentTime.tv_nsec - state->timeInit.tv_nsec)/1000;
+		int64_t timeSystem = timeS*1000000 + timeUs;
+		int64_t delay = timeSystem - (timeEvent - state->timeInitEvent);
+		// Make sure time delay >= 0 in case of incorrect initialization
+		if (delay < 0) {
+			state->timeInitEvent -= delay;
+			delay = 0;
+		}
+		return (delay);
+	}
 }
