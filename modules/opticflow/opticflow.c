@@ -12,9 +12,14 @@
 #include "flowEvent.h"
 #include "flowBenosman2014.h"
 #include "flowRegularizationFilter.h"
+#include "uart.h"
 
 #define FLOW_BUFFER_SIZE 3
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1e6/115.0
+
+char* UART_PORT = "/dev/ttyS2";
+
+bool tested = false;
 
 struct OpticFlowFilter_state {
 	FlowEventBuffer buffer;
@@ -27,6 +32,7 @@ struct OpticFlowFilter_state {
 	struct timespec timeInit;
 	int64_t timeInitEvent;
 	bool timeSet;
+	bool uartConnectionReady;
 };
 
 typedef struct OpticFlowFilter_state *OpticFlowFilterState;
@@ -93,6 +99,15 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 
 	// Add config listeners last, to avoid having them dangling if Init doesn't succeed.
 	sshsNodeAddAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
+
+	// Init UART communication
+	int uartErrno = uart_open(UART_PORT);
+	if (uartErrno) {
+		caerLog(CAER_LOG_ALERT, "UART","Unable to identify serial communication, errno=%i.",uartErrno);
+	}
+	else {
+		state->uartConnectionReady = true;
+	}
 
 	// Nothing that can fail here.
 	return (true);
@@ -162,6 +177,18 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		}
 	}
 
+	// TEST WRITE TO UART
+	struct timespec currentTime;
+	portable_clock_gettime_monotonic(&currentTime);
+	if (!tested && state->uartConnectionReady){
+		if (currentTime.tv_sec - state->timeInit.tv_sec >= 5) {
+			uint8_t testData = 8;
+			uart_tx(1,&testData);
+			tested = true;
+			fprintf(stdout,"Write\n");
+		}
+	}
+
 	// Print average optic flow and time delay
 	fprintf(stdout, "%c[2K", 27);
 	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. timeDelay: %ld",
@@ -196,6 +223,11 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 	sshsNodeRemoveAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
 
 	OpticFlowFilterState state = moduleData->moduleState;
+
+	// Close UART connection
+	if (state->uartConnectionReady) {
+		uart_close();
+	}
 
 	// Ensure map is freed.
 	flowEventBufferFree(state->buffer);
