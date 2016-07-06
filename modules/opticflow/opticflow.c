@@ -13,10 +13,9 @@
 #include "flowBenosman2014.h"
 #include "flowRegularizationFilter.h"
 #include "uartOutput.h"
-#include "ext/ringbuffer/ringbuffer.h"
 
 #define FLOW_BUFFER_SIZE 3
-#define RING_BUFFER_SIZE 512
+#define RING_BUFFER_SIZE 64
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1e6/115.0
 
 char* UART_PORT = "/dev/ttyS2";
@@ -104,7 +103,7 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 
 	// Init UART communication
 	state->uartState = malloc(sizeof(struct uart_state));
-	state->uartState->running = false;
+	atomic_store(&state->uartState->running, false);
 	if (!initUartOutput(state->uartState, UART_PORT, RING_BUFFER_SIZE)) {
 		caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
 				"UART communication not available.");
@@ -188,15 +187,15 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 
 	// Add event packet to ring buffer for transmission through UART
 	// Transmission is performed in a separate thread
-	if (state->uartState->running) {
+	if (atomic_load_explicit(&state->uartState->running, memory_order_relaxed)) {
 		addPacketToTransferBuffer(state->uartState, flow);
 	}
 
 	// Print average optic flow, time delay, and flow rate
-	fprintf(stdout, "%c[2K", 27);
-	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. delay: %ld ms. rate: %3.3fk",
-			state->wx, state->wy, delay/1000, state->flowRate*1e3);
-	fflush(stdout);
+//	fprintf(stdout, "%c[2K", 27);
+//	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. delay: %ld ms. rate: %3.3fk",
+//			state->wx, state->wy, delay/1000, state->flowRate*1e3);
+//	fflush(stdout);
 }
 
 static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
@@ -228,7 +227,7 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 	OpticFlowFilterState state = moduleData->moduleState;
 
 	// Close UART connection if necessary
-	if (state->uartState->running) {
+	if (atomic_load_explicit(&state->uartState->running, memory_order_relaxed)) {
 		closeUartOutput(state->uartState);
 	}
 	free(state->uartState);
