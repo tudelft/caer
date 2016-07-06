@@ -13,8 +13,10 @@
 #include "ext/c11threads_posix.h"
 #include "ext/ringbuffer/ringbuffer.h"
 
+#include <stdatomic.h>
+
 struct uart_state {
-	bool running;
+	atomic_bool running;
 	RingBuffer buffer;
 	thrd_t thread;
 };
