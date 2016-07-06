@@ -12,13 +12,14 @@
 #include "flowEvent.h"
 #include "flowBenosman2014.h"
 #include "flowRegularizationFilter.h"
-#include "uart.h"
+#include "uartOutput.h"
+#include "ext/ringbuffer/ringbuffer.h"
 
 #define FLOW_BUFFER_SIZE 3
+#define RING_BUFFER_SIZE 512
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1e6/115.0
 
 char* UART_PORT = "/dev/ttyS2";
-
 bool tested = false;
 
 struct OpticFlowFilter_state {
@@ -29,10 +30,11 @@ struct OpticFlowFilter_state {
 	int64_t refractoryPeriod;
 	int8_t subSampleBy;
 	double wx, wy;
+	double flowRate;
 	struct timespec timeInit;
 	int64_t timeInitEvent;
 	bool timeSet;
-	bool uartConnectionReady;
+	uartState uartState;
 };
 
 typedef struct OpticFlowFilter_state *OpticFlowFilterState;
@@ -101,15 +103,13 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	sshsNodeAddAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
 
 	// Init UART communication
-	int uartErrno = uart_open(UART_PORT);
-	if (uartErrno) {
-		caerLog(CAER_LOG_ALERT, "UART","Unable to identify serial communication, errno=%i.",uartErrno);
-	}
-	else {
-		state->uartConnectionReady = true;
+	state->uartState = malloc(sizeof(struct uart_state));
+	state->uartState->running = false;
+	if (!initUartOutput(state->uartState, UART_PORT, RING_BUFFER_SIZE)) {
+		caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
+				"UART communication not available.");
 	}
 
-	// Nothing that can fail here.
 	return (true);
 }
 
@@ -136,6 +136,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 	}
 
 	int64_t delay = 0;
+	int flowCount = 0;
 
 	// Iterate over events and filter out ones that are not supported by other
 	// events within a certain region in the specified timeframe.
@@ -162,37 +163,39 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		if (state->enableFlowRegularization) {
 			flowRegularizationFilter(e,state->buffer,state->filterParams);
 		}
+		if (!e->hasFlow && caerPolarityEventIsValid((caerPolarityEvent) e)) {
+			caerPolarityEventInvalidate((caerPolarityEvent) e,
+								(caerPolarityEventPacket) flow);
+		}
 
-		// For now, count events in packet and output how many have flow
+		// For now, estimate average ventral flows for debugging purposes
 		if (e->hasFlow) {
 			double wxNew = e->u*DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW;
 			double wyNew = e->v*DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW;
-			state->wx += (wxNew-state->wx)/50;
-			state->wy += (wyNew-state->wy)/50;
+			state->wx += (wxNew-state->wx)/2;
+			state->wy += (wyNew-state->wy)/2;
+			flowCount++;
 		}
 
-		// Estimate time delay using last event
+		// Estimate time delay and flow event rate using last event
 		if (caerEventPacketHeaderGetEventNumber((caerEventPacketHeader) flow) - i == 1) {
 			delay = computeTimeDelay(state, e->timestamp);
+			double packetTimeDiff = (double) (e->timestamp - flowEventPacketGetEvent(flow,0)->timestamp);
+			double flowRate = flowCount / (packetTimeDiff+0.00001);
+			state->flowRate += (flowRate-state->flowRate)/500;
 		}
 	}
 
-	// TEST WRITE TO UART
-	struct timespec currentTime;
-	portable_clock_gettime_monotonic(&currentTime);
-	if (!tested && state->uartConnectionReady){
-		if (currentTime.tv_sec - state->timeInit.tv_sec >= 5) {
-			uint8_t testData = 8;
-			uart_tx(1,&testData);
-			tested = true;
-			fprintf(stdout,"Write\n");
-		}
+	// Add event packet to ring buffer for transmission through UART
+	// Transmission is performed in a separate thread
+	if (state->uartState->running) {
+		addPacketToTransferBuffer(state->uartState, flow);
 	}
 
-	// Print average optic flow and time delay
+	// Print average optic flow, time delay, and flow rate
 	fprintf(stdout, "%c[2K", 27);
-	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. timeDelay: %ld",
-			state->wx, state->wy, delay/1000);
+	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. delay: %ld ms. rate: %3.3fk",
+			state->wx, state->wy, delay/1000, state->flowRate*1e3);
 	fflush(stdout);
 }
 
@@ -224,12 +227,13 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 
 	OpticFlowFilterState state = moduleData->moduleState;
 
-	// Close UART connection
-	if (state->uartConnectionReady) {
-		uart_close();
+	// Close UART connection if necessary
+	if (state->uartState->running) {
+		closeUartOutput(state->uartState);
 	}
+	free(state->uartState);
 
-	// Ensure map is freed.
+	// Ensure buffer is freed.
 	flowEventBufferFree(state->buffer);
 }
 
@@ -250,7 +254,6 @@ static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID) {
 		return (false);
 	}
 
-	// TODO: size the map differently if subSampleBy is set!
 	return (true);
 }
 
