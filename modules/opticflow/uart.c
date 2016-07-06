@@ -257,8 +257,8 @@ int uart_open(char *port)
   /*
    * Set the baud rates to 115200...
    */
-  cfsetispeed(&options, B115200);
-  cfsetospeed(&options, B115200);
+  cfsetispeed(&options, B921600);
+  cfsetospeed(&options, B921600);
 
   /*
    * Enable the receiver and set parameters ...

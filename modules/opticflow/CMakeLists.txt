@@ -1,5 +1,5 @@
 IF (NOT ENABLE_OPTICFLOW)
-	SET(ENABLE_OPTICFLOW 0 CACHE BOOL "Enable the background activity filtering module")
+	SET(ENABLE_OPTICFLOW 0 CACHE BOOL "Enable optic flow estimation module")
 ENDIF()
 
 IF (ENABLE_OPTICFLOW)
@@ -9,7 +9,8 @@ IF (ENABLE_OPTICFLOW)
 		modules/opticflow/opticflow.c
 		modules/opticflow/flowBenosman2014.c
 		modules/opticflow/flowRegularizationFilter.c
-		modules/opticflow/uart.c)
+		modules/opticflow/uart.c
+		modules/opticflow/uartOutput.c)
 
 	SET(CAER_C_SRC_FILES ${CAER_C_SRC_FILES} ${CAER_OPTICFLOW_FILES} PARENT_SCOPE)
 ENDIF()
