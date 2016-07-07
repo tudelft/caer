@@ -15,7 +15,7 @@ static int uartHandlerThread(void *stateArg);
 bool initUartOutput(uartState state, char* port, size_t bufferSize) {
 
 	// Initialize UART communication
-	int uartErrno = 0;//uart_open(port);
+	int uartErrno = uart_open(port);
 	if (uartErrno) {
 		caerLog(CAER_LOG_ALERT, UART_SUBSYSTEM,"Failed to identify serial communication, errno=%i.",uartErrno);
 		return (false);
@@ -58,7 +58,6 @@ void addPacketToTransferBuffer(uartState state, FlowEventPacket packet) {
 		caerLog(CAER_LOG_ALERT, UART_SUBSYSTEM,"Failed to add event packet to ring buffer.");
 		return;
 	}
-	printf("Packet added, size %4i\n",copy->packetHeader.eventNumber);
 }
 
 void closeUartOutput(uartState state) {
@@ -89,7 +88,36 @@ static inline FlowEventPacket getPacketFromTransferBuffer(RingBuffer buffer) {
 }
 
 static inline bool sendFlowEventPacketUart(FlowEventPacket packet) {
-	printf("Packet sent, size %3i\n",packet->packetHeader.eventNumber);
+	// Send header information for verification. First, two character sequence.
+	unsigned char* startCallsign = (unsigned char*) 's';
+	unsigned char* endCallsign = (unsigned char*) '\n';
+	if (uart_tx(sizeof(startCallsign), startCallsign)) {
+		return (false);
+	}
+	// Now send packet content
+	int i;
+	for (i=0; i < caerEventPacketHeaderGetEventNumber(&packet->packetHeader); i++) {
+		// Compress data
+		FlowEvent e = flowEventPacketGetEvent(packet,i);
+		uint8_t x = (uint8_t) caerPolarityEventGetX((caerPolarityEvent) e);
+		uint8_t y = (uint8_t) caerPolarityEventGetY((caerPolarityEvent) e);
+		int32_t t = caerPolarityEventGetTimestamp((caerPolarityEvent) e);
+		float u = (float) e->u;
+		float v = (float) e->v;
+
+		// Send data over UART
+		if (uart_tx(sizeof(x),(unsigned char*) &x)
+				|| uart_tx(sizeof(y),(unsigned char*) &y)
+				|| uart_tx(sizeof(t),(unsigned char*) &t)
+				|| uart_tx(sizeof(u),(unsigned char*) &u)
+				|| uart_tx(sizeof(v),(unsigned char*) &v))  {
+			return (false);
+		}
+	}
+
+	if (uart_tx(sizeof(endCallsign), endCallsign)) {
+		return (false);
+	}
 	return (true);
 }
 

@@ -15,7 +15,7 @@
 #include "uartOutput.h"
 
 #define FLOW_BUFFER_SIZE 3
-#define RING_BUFFER_SIZE 64
+#define RING_BUFFER_SIZE 512
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1e6/115.0
 
 char* UART_PORT = "/dev/ttyS2";
