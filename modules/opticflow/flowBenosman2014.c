@@ -16,7 +16,7 @@
 
 #define MAX_NUMBER_OF_EVENTS 100
 #define DBL_ZERO_EPSILON 1.0E-10
-
+#define FLOW_PIX_PER_SECOND 1e6
 
 void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 		FlowBenosman2014Params params) {
@@ -171,8 +171,8 @@ void flowBenosman2014(FlowEvent e, FlowEventBuffer buffer,
 		return;
 	}
 
-	// Assign flow to event
-	e->u = u;
-	e->v = v;
+	// Assign flow to event in pixels per second (instead of pix/us)
+	e->u = u * FLOW_PIX_PER_SECOND;
+	e->v = v * FLOW_PIX_PER_SECOND;
 	e->hasFlow = true;
 }
