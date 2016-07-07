@@ -234,7 +234,7 @@ int serial_handle;
 
 void uart_list_devices() {}
 
-int uart_open(char *port)
+int uart_open(char *port, unsigned int baud)
 {
   struct termios options;
   int i;
@@ -257,8 +257,8 @@ int uart_open(char *port)
   /*
    * Set the baud rates to 115200...
    */
-  cfsetispeed(&options, B921600);
-  cfsetospeed(&options, B921600);
+  cfsetispeed(&options, (speed_t) baud);
+  cfsetospeed(&options, (speed_t) baud);
 
   /*
    * Enable the receiver and set parameters ...

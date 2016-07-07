@@ -10,7 +10,7 @@ IF (ENABLE_OPTICFLOW)
 		modules/opticflow/flowBenosman2014.c
 		modules/opticflow/flowRegularizationFilter.c
 		modules/opticflow/uart.c
-		modules/opticflow/uartOutput.c)
+		modules/opticflow/flowOutput.c)
 
 	SET(CAER_C_SRC_FILES ${CAER_C_SRC_FILES} ${CAER_OPTICFLOW_FILES} PARENT_SCOPE)
 ENDIF()

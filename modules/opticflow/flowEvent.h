@@ -158,6 +158,57 @@ static inline FlowEvent flowEventPacketGetEvent(FlowEventPacket packet, int32_t 
 }
 
 /**
+ * Make a copy of a flow event packet.
+*/
+static inline FlowEventPacket flowEventPacketCopy(FlowEventPacket flow) {
+	// Handle empty event packets.
+	if (flow == NULL) {
+		return (NULL);
+	}
+
+	// Calculate needed memory for new event packet.
+	caerEventPacketHeader header = &(flow->packetHeader);
+	int32_t eventSize = caerEventPacketHeaderGetEventSize(header);
+	int32_t eventNumber = caerEventPacketHeaderGetEventNumber(header);
+	int32_t eventValid = caerEventPacketHeaderGetEventValid(header);
+
+	if (eventValid == 0) {
+		// No copy possible if result is empty (capacity=0).
+		return (NULL);
+	}
+
+	size_t packetMem = CAER_EVENT_PACKET_HEADER_SIZE + (size_t) (eventSize * eventValid);
+
+	// Allocate memory for new event packet.
+	FlowEventPacket eventPacketCopy = (FlowEventPacket) malloc(packetMem);
+	if (eventPacketCopy == NULL) {
+		// Failed to allocate memory.
+		return (NULL);
+	}
+
+	// First copy over the header.
+	memcpy(eventPacketCopy, flow, CAER_EVENT_PACKET_HEADER_SIZE);
+
+	// Copy the data over. Must check every event for validity!
+	size_t offset = CAER_EVENT_PACKET_HEADER_SIZE;
+
+	int i;
+	for (i = 0; i < eventNumber; i++) {
+		FlowEvent e = flowEventPacketGetEvent(flow, i);
+		if (caerPolarityEventIsValid((caerPolarityEvent) e)) continue;
+		memcpy(((uint8_t *) eventPacketCopy) + offset, e, (size_t) eventSize);
+		offset += (size_t) eventSize;
+	}
+
+	// Set the event capacity and the event number to the number of
+	// valid events, since we only copied those.
+	caerEventPacketHeaderSetEventCapacity(&(eventPacketCopy->packetHeader), eventValid);
+	caerEventPacketHeaderSetEventNumber(&(eventPacketCopy->packetHeader), eventValid);
+
+	return (eventPacketCopy);
+}
+
+/**
  * Free flow event packet memory.
 */
 static inline void flowEventPacketFree(FlowEventPacket flow) {

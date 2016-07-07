@@ -12,14 +12,19 @@
 #include "flowEvent.h"
 #include "flowBenosman2014.h"
 #include "flowRegularizationFilter.h"
-#include "uartOutput.h"
+#include "flowOutput.h"
+#include "termios.h"
 
 #define FLOW_BUFFER_SIZE 3
 #define RING_BUFFER_SIZE 512
-#define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1e6/115.0
+#define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1/115.0
 
-char* UART_PORT = "/dev/ttyS2";
-bool tested = false;
+outputMode outMode = OF_OUT_FILE;
+
+char* UART_PORT = (char*) "/dev/ttySAC2";
+unsigned int BAUD = B115200;
+
+char* OUTPUT_FILE_NAME = "eventLog.csv";
 
 struct OpticFlowFilter_state {
 	FlowEventBuffer buffer;
@@ -33,7 +38,7 @@ struct OpticFlowFilter_state {
 	struct timespec timeInit;
 	int64_t timeInitEvent;
 	bool timeSet;
-	uartState uartState;
+	flowOutputState outputState;
 };
 
 typedef struct OpticFlowFilter_state *OpticFlowFilterState;
@@ -101,14 +106,22 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	// Add config listeners last, to avoid having them dangling if Init doesn't succeed.
 	sshsNodeAddAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
 
-	// Init UART communication
-	state->uartState = malloc(sizeof(struct uart_state));
-	atomic_store(&state->uartState->running, false);
-	if (!initUartOutput(state->uartState, UART_PORT, RING_BUFFER_SIZE)) {
-		caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
-				"UART communication not available.");
+	state->outputState = malloc(sizeof(struct flow_output_state));
+	atomic_store(&state->outputState->running, false);
+	state->outputState->mode = outMode;
+	if (outMode == OF_OUT_UART || outMode == OF_OUT_BOTH) {
+		// Init UART communication
+		if (!initUartOutput(state->outputState, UART_PORT, BAUD, RING_BUFFER_SIZE)) {
+			caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
+					"UART communication not available.");
+		}
 	}
-
+	if (outMode == OF_OUT_FILE || outMode == OF_OUT_BOTH) {
+		if (!initFileOutput(state->outputState, OUTPUT_FILE_NAME, RING_BUFFER_SIZE)) {
+			caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
+					"UART communication not available.");
+		}
+	}
 	return (true);
 }
 
@@ -187,8 +200,8 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 
 	// Add event packet to ring buffer for transmission through UART
 	// Transmission is performed in a separate thread
-	if (atomic_load_explicit(&state->uartState->running, memory_order_relaxed)) {
-		addPacketToTransferBuffer(state->uartState, flow);
+	if (atomic_load_explicit(&state->outputState->running, memory_order_relaxed)) {
+		addPacketToTransferBuffer(state->outputState, flow);
 	}
 
 	// Print average optic flow, time delay, and flow rate
@@ -226,11 +239,18 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 
 	OpticFlowFilterState state = moduleData->moduleState;
 
-	// Close UART connection if necessary
-	if (atomic_load_explicit(&state->uartState->running, memory_order_relaxed)) {
-		closeUartOutput(state->uartState);
+	// Close UART connection/file if necessary
+	if (atomic_load_explicit(&state->outputState->running, memory_order_relaxed)) {
+		if (state->outputState->mode == OF_OUT_UART
+				|| state->outputState->mode == OF_OUT_BOTH) {
+			closeUartOutput(state->outputState);
+		}
+		if (state->outputState->mode == OF_OUT_FILE
+				|| state->outputState->mode == OF_OUT_BOTH) {
+			closeFileOutput(state->outputState);
+		}
 	}
-	free(state->uartState);
+	free(state->outputState);
 
 	// Ensure buffer is freed.
 	flowEventBufferFree(state->buffer);

@@ -30,7 +30,7 @@
 
 void uart_list_devices();
 int uart_find_serialport(char *name);
-int uart_open(char *port);
+int uart_open(char *port, unsigned int speed);
 void uart_close();
 int uart_tx(int len, unsigned char *data);
 int uart_rx(int len, unsigned char *data, int timeout_ms);
