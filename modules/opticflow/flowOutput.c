@@ -161,6 +161,13 @@ static inline caerEventPacketHeader getPacketFromTransferBuffer(RingBuffer buffe
 }
 
 static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
+
+	FlowEventPacket flow = (FlowEventPacket) header;
+	int32_t numValid = caerEventPacketHeaderGetEventValid(header);
+	if (numValid == 0) {
+		return (false);
+	}
+
 	// Send header information for verification. First, two character sequence.
 	char* startCallsign = "s";
 	char* endCallsign = "\n\r";
@@ -168,12 +175,8 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet start callsign not sent.");
 		return (false);
 	}
-	// Now send packet content
-	FlowEventPacket flow = (FlowEventPacket) header;
-	if (caerEventPacketHeaderGetEventValid(header) == 0) {
-		return (false);
-	}
 
+	// Now send packet content
 	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(header); i++) {
 		FlowEvent e = &(flow->events[i]);
 		if (e == NULL) {
