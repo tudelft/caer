@@ -16,10 +16,10 @@
 #include "termios.h"
 
 #define FLOW_BUFFER_SIZE 3
-#define RING_BUFFER_SIZE 512
+#define RING_BUFFER_SIZE 1024
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1/115.0
 
-outputMode outMode = OF_OUT_FILE;
+outputMode outMode = OF_OUT_UART;
 
 char* UART_PORT = (char*) "/dev/ttySAC2";
 unsigned int BAUD = B115200;
