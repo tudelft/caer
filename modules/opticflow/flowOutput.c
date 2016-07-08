@@ -165,15 +165,20 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 	FlowEventPacket flow = (FlowEventPacket) header;
 	int32_t numValid = caerEventPacketHeaderGetEventValid(header);
 	if (numValid == 0) {
+		// No events to send - return
 		return (false);
 	}
 
 	// Send header information for verification. First, two character sequence.
 	char* startCallsign = "s";
-	char* endCallsign = "\n\r";
+	char* endCallsign = "\0";
 	if (uart_tx((int) strlen(startCallsign), (unsigned char*)startCallsign)) {
 		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet start callsign not sent.");
 		return (false);
+	}
+	if (uart_tx(sizeof(startCallsign), (unsigned char*) &numValid)) {
+			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet info not sent.");
+			return (false);
 	}
 
 	// Now send packet content
@@ -201,7 +206,7 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 			return (false);
 		}
 	}
-
+	// Finish packet with terminator
 	if (uart_tx((int) strlen(endCallsign), (unsigned char*) endCallsign)) {
 		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet end callsign not sent.");
 		return (false);
