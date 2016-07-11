@@ -27,6 +27,7 @@ struct flow_output_state {
 	RingBuffer buffer;
 	thrd_t thread;
 	FILE* file;
+	int32_t fileLineNumber;
 };
 
 typedef struct flow_output_state *flowOutputState;
@@ -37,6 +38,6 @@ void closeUartOutput(flowOutputState state);
 bool initFileOutput(flowOutputState state, char* file, size_t bufferSize);
 void closeFileOutput(flowOutputState state);
 
-void addPacketToTransferBuffer(flowOutputState state, FlowEventPacket packet);
+void addPacketToTransferBuffer(flowOutputState state, FlowEventPacket packet, int32_t flowNumber);
 
 #endif /* MODULES_OPTICFLOW_FLOWOUTPUT_H_ */

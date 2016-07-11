@@ -19,12 +19,12 @@
 #define RING_BUFFER_SIZE 1024
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1/115.0
 
-outputMode outMode = OF_OUT_UART;
+outputMode outMode = OF_OUT_FILE;
 
-char* UART_PORT = (char*) "/dev/ttySAC2";
+char* UART_PORT = (char*) "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B115200;
 
-char* OUTPUT_FILE_NAME = "eventLog.csv";
+char* OUTPUT_FILE_NAME = "caerEventLog.csv";
 
 struct OpticFlowFilter_state {
 	FlowEventBuffer buffer;
@@ -148,7 +148,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 	}
 
 	int64_t delay = 0;
-	int flowCount = 0;
+	int32_t flowCount = 0;
 
 	// Iterate over events and filter out ones that are not supported by other
 	// events within a certain region in the specified timeframe.
@@ -175,10 +175,6 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		if (state->enableFlowRegularization) {
 			flowRegularizationFilter(e,state->buffer,state->filterParams);
 		}
-		if (!e->hasFlow && caerPolarityEventIsValid((caerPolarityEvent) e)) {
-			caerPolarityEventInvalidate((caerPolarityEvent) e,
-								(caerPolarityEventPacket) flow);
-		}
 
 		// For now, estimate average ventral flows for debugging purposes
 		if (e->hasFlow) {
@@ -198,10 +194,10 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		}
 	}
 
-	// Add event packet to ring buffer for transmission through UART
+	// Add event packet to ring buffer for transmission through UART/ to file
 	// Transmission is performed in a separate thread
 	if (atomic_load_explicit(&state->outputState->running, memory_order_relaxed)) {
-		addPacketToTransferBuffer(state->outputState, flow);
+		addPacketToTransferBuffer(state->outputState, flow, flowCount);
 	}
 
 	// Print average optic flow, time delay, and flow rate
