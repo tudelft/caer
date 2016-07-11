@@ -7,7 +7,8 @@
 
 #include "flowOutput.h"
 #define SUBSYSTEM_UART "UART"
-#define SUBSYSTEM_FILE "FILEOUT"
+#define SUBSYSTEM_FILE "Event logger"
+#define FILE_MAX_NUMBER_OF_LINES 5000000
 
 static inline caerEventPacketHeader getPacketFromTransferBuffer(RingBuffer buffer);
 static inline bool sendFlowEventPacketUart(caerEventPacketHeader header);
@@ -50,14 +51,13 @@ bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t
 
 bool initFileOutput(flowOutputState state, char* fileName, size_t bufferSize) {
 	// Initialize file communication
-	state->file = fopen(fileName,"w");
+	state->file = fopen(fileName,"w+");
 	if (state->file == NULL) {
 		caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE,"Failed to open file");
 		return (false);
 	}
-	// Write header
-
-	if (fprintf(state->file,"#AER data with optic flow values\n") < 0) {
+	// Write header as check for file output
+	if (fprintf(state->file,"#cAER event data with optic flow values\n") < 0) {
 		caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE,"Failed to write header");
 		fclose(state->file);
 		return (false);
@@ -67,9 +67,11 @@ bool initFileOutput(flowOutputState state, char* fileName, size_t bufferSize) {
 	struct tm * timeInfo;
 	time (&rawTime);
 	timeInfo = localtime(&rawTime);
-	fprintf(state->file,"#Date: %s\n",asctime(timeInfo));
+	fprintf(state->file,"#Date created: %s\n",asctime(timeInfo));
 	// Write column legend
 	fprintf(state->file,"#x,y,t,p,u,v\n");
+
+	state->fileLineNumber = 4;
 
 	// Start output handler thread (ONLY IF NECESSARY)
 	if (state->mode != OF_OUT_BOTH ||
@@ -89,6 +91,7 @@ bool initFileOutput(flowOutputState state, char* fileName, size_t bufferSize) {
 		atomic_store(&state->running, true);
 	}
 	caerLog(CAER_LOG_NOTICE, SUBSYSTEM_FILE, "Logging events to fileName %s",fileName);
+
 	return (true);
 }
 
@@ -118,7 +121,8 @@ void closeFileOutput(flowOutputState state) {
 	fclose(state->file);
 }
 
-void addPacketToTransferBuffer(flowOutputState state, FlowEventPacket packet) {
+void addPacketToTransferBuffer(flowOutputState state, FlowEventPacket packet,
+		int32_t flowNumber) {
 	if (packet == NULL) {
 		// There was nothing in this mainloop run: return
 		return;
@@ -130,11 +134,39 @@ void addPacketToTransferBuffer(flowOutputState state, FlowEventPacket packet) {
 	if (caerEventPacketHeaderGetEventValid(header) == 0) {
 		return;
 	}
+	if (flowNumber == 0) {
+		return;
+	}
 
-	caerEventPacketHeader copy = caerCopyEventPacketOnlyEvents(header);
-
+	// Allocate memory for new flow event packet
+	FlowEventPacket copy = malloc(sizeof(struct flow_event_packet));
 	if (copy == NULL) {
 			caerLog(CAER_LOG_ERROR, SUBSYSTEM_UART,"Failed to copy event packet.");
+		return;
+	}
+
+	// Copy header information
+	copy->packetHeader = packet->packetHeader;
+	copy->packetHeader.eventNumber = flowNumber;
+	copy->packetHeader.eventValid = flowNumber;
+	copy->events = malloc(sizeof(struct flow_event) * (size_t) flowNumber);
+
+	// Copy events
+	int j = 0;
+	for (int i = 0; i < header->eventNumber; i++) {
+		FlowEvent e = &packet->events[i];
+		if (e->hasFlow) {
+			copy->events[j] = *e;
+			j++;
+		}
+	}
+
+	// Verify number of events copied
+	if (j != flowNumber) {
+		caerLog(CAER_LOG_ERROR, SUBSYSTEM_FILE,
+				"Copied %d events while number of flow events is %d.",
+				j, flowNumber);
+		free(copy);
 		return;
 	}
 
@@ -157,6 +189,7 @@ static inline caerEventPacketHeader getPacketFromTransferBuffer(RingBuffer buffe
 			goto repeat;
 		}
 	}
+
 	return (packet);
 }
 
@@ -170,15 +203,18 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 	}
 
 	// Send header information for verification. First, two character sequence.
-	char* startCallsign = "s";
-	char* endCallsign = "\0";
-	if (uart_tx((int) strlen(startCallsign), (unsigned char*)startCallsign)) {
+	char* packetSeparator = "s";
+	if (uart_tx((int) strlen(packetSeparator), (unsigned char*)packetSeparator)) {
 		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet start callsign not sent.");
 		return (false);
 	}
-	if (uart_tx(sizeof(startCallsign), (unsigned char*) &numValid)) {
+	if (uart_tx(sizeof(numValid), (unsigned char*) &numValid)) {
 			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet info not sent.");
 			return (false);
+	}
+	if (uart_tx((int) strlen(packetSeparator), (unsigned char*)packetSeparator)) {
+		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet second start callsign not sent.");
+		return (false);
 	}
 
 	// Now send packet content
@@ -188,7 +224,6 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Event null pointer found.");
 			return (false);
 		}
-		if (caerPolarityEventIsValid((caerPolarityEvent) e)) {continue;}
 		if (!e->hasFlow) {continue;}
 		uint8_t x = (uint8_t) caerPolarityEventGetX((caerPolarityEvent) e);
 		uint8_t y = (uint8_t) caerPolarityEventGetY((caerPolarityEvent) e);
@@ -202,14 +237,9 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 				|| uart_tx(sizeof(t),(unsigned char*) &t)
 				|| uart_tx(sizeof(u),(unsigned char*) &u)
 				|| uart_tx(sizeof(v),(unsigned char*) &v))  {
-			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Event not sent.");
+			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Event info not fully sent.");
 			return (false);
 		}
-	}
-	// Finish packet with terminator
-	if (uart_tx((int) strlen(endCallsign), (unsigned char*) endCallsign)) {
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet end callsign not sent.");
-		return (false);
 	}
 	return (true);
 }
@@ -218,6 +248,7 @@ static inline bool writeFlowEventPacketFile(flowOutputState state,
 		caerEventPacketHeader packet) {
 
 	FlowEventPacket flow = (FlowEventPacket) packet;
+
 	if (caerEventPacketHeaderGetEventValid(packet) == 0) {
 		return (false);
 	}
@@ -228,8 +259,8 @@ static inline bool writeFlowEventPacketFile(flowOutputState state,
 			caerLog(CAER_LOG_ERROR,SUBSYSTEM_FILE,"Event null pointer found.");
 			return (false);
 		}
-		if (caerPolarityEventIsValid((caerPolarityEvent) e)) {continue;}
 		if (!e->hasFlow) {continue;}
+
 		// Get event data
 		uint8_t x = (uint8_t) caerPolarityEventGetX((caerPolarityEvent) e);
 		uint8_t y = (uint8_t) caerPolarityEventGetY((caerPolarityEvent) e);
@@ -237,8 +268,21 @@ static inline bool writeFlowEventPacketFile(flowOutputState state,
 		bool p = caerPolarityEventGetPolarity((caerPolarityEvent) e);
 		double u = e->u;
 		double v = e->v;
+
 		// Write to file
-		fprintf(state->file,"%3i,%3i,%10i,%d,%4.3f,%4.3f\n",x,y,t,p,u,v);
+		if (state->fileLineNumber < FILE_MAX_NUMBER_OF_LINES)  {
+			fprintf(state->file,"%3i,%3i,%10i,%d,%4.3f,%4.3f\n",x,y,t,p,u,v);
+			state->fileLineNumber++;
+		}
+		else {
+			// If too many lines, stop logging to prevent overrun
+			if (state->fileLineNumber == FILE_MAX_NUMBER_OF_LINES) {
+				caerLog(CAER_LOG_NOTICE, SUBSYSTEM_FILE,
+						"File log reached limit of %d lines - "
+						"no more lines will be added.", FILE_MAX_NUMBER_OF_LINES);
+				state->fileLineNumber++;
+			}
+		}
 	}
 	return (true);
 }
