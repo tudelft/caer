@@ -22,7 +22,7 @@
 outputMode outMode = OF_OUT_FILE;
 
 char* UART_PORT = (char*) "/dev/ttySAC2"; // based on Odroid XU4 ports
-unsigned int BAUD = B115200;
+unsigned int BAUD = B921600;
 
 char* OUTPUT_FILE_NAME = "caerEventLog.csv";
 
@@ -161,8 +161,10 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		uint16_t y = caerPolarityEventGetY((caerPolarityEvent) e);
 		FlowEvent eB = flowEventBufferRead(state->buffer,x,y,0);
 		if (e->timestamp - eB->timestamp < state->refractoryPeriod) {
+			flowEventBufferAdd(e, state->buffer); // preserve event but do not compute flow
 			caerPolarityEventInvalidate((caerPolarityEvent) e,
 					(caerPolarityEventPacket) flow);
+			continue;
 		}
 
 		// Compute optic flow using events in buffer
