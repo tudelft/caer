@@ -25,7 +25,7 @@ bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t
 		return (false);
 	}
 	// Test message
-	char* testMessage = "First message \n";
+	char* testMessage = "DVS128UART";
 	if (uart_tx((int) strlen(testMessage), (unsigned char*) testMessage)) {
 		caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART,
 				"Test transmission unsuccessful - connection closed.");
@@ -196,8 +196,8 @@ static inline caerEventPacketHeader getPacketFromTransferBuffer(RingBuffer buffe
 static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 
 	FlowEventPacket flow = (FlowEventPacket) header;
-	int32_t numValid = caerEventPacketHeaderGetEventValid(header);
-	if (numValid == 0) {
+	uint32_t packetSize = caerEventPacketHeaderGetEventNumber(header);
+	if (packetSize == 0) {
 		// No events to send - return
 		return (false);
 	}
@@ -205,15 +205,15 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 	// Send header information for verification. First, two character sequence.
 	char* packetSeparator = "s";
 	if (uart_tx((int) strlen(packetSeparator), (unsigned char*)packetSeparator)) {
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet start callsign not sent.");
+		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"First packet separator not sent.");
 		return (false);
 	}
-	if (uart_tx(sizeof(numValid), (unsigned char*) &numValid)) {
+	if (uart_tx(sizeof(packetSize), (unsigned char*) &packetSize)) {
 			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet info not sent.");
 			return (false);
 	}
 	if (uart_tx((int) strlen(packetSeparator), (unsigned char*)packetSeparator)) {
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet second start callsign not sent.");
+		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Second packet separator not sent.");
 		return (false);
 	}
 
@@ -228,8 +228,8 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 		uint8_t x = (uint8_t) caerPolarityEventGetX((caerPolarityEvent) e);
 		uint8_t y = (uint8_t) caerPolarityEventGetY((caerPolarityEvent) e);
 		int32_t t = caerPolarityEventGetTimestamp((caerPolarityEvent) e);
-		float u = (float) e->u;
-		float v = (float) e->v;
+		int16_t u = (int16_t) (e->u*100);
+		int16_t v = (int16_t) (e->v*100);
 
 		// Send data over UART
 		if (uart_tx(sizeof(x),(unsigned char*) &x)
