@@ -216,6 +216,7 @@ static inline void flowEventPacketFree(FlowEventPacket flow) {
 		free(flow->events);
 		free(flow);
 	}
+	flow = NULL; // make sure that free is not called twice on the same packet
 }
 
 /**

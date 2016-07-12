@@ -10,11 +10,11 @@
 #define SUBSYSTEM_FILE "Event logger"
 #define FILE_MAX_NUMBER_OF_LINES 5000000
 
-static inline caerEventPacketHeader getPacketFromTransferBuffer(RingBuffer buffer);
-static inline bool sendFlowEventPacketUart(caerEventPacketHeader header);
+static inline FlowEventPacket getPacketFromTransferBuffer(RingBuffer buffer);
+static inline bool sendFlowEventPacketUart(FlowEventPacket header);
 static int outputHandlerThread(void *stateArg);
 static inline bool writeFlowEventPacketFile(flowOutputState state,
-		caerEventPacketHeader packet);
+		FlowEventPacket packet);
 
 bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t bufferSize) {
 	// Initialize UART communication
@@ -75,7 +75,7 @@ bool initFileOutput(flowOutputState state, char* fileName, size_t bufferSize) {
 
 	// Start output handler thread (ONLY IF NECESSARY)
 	if (state->mode != OF_OUT_BOTH ||
-			atomic_load_explicit(&state->running, memory_order_relaxed)) {
+			!atomic_load_explicit(&state->running, memory_order_relaxed)) {
 		state->thread = 0;
 		if (thrd_create(&state->thread, &outputHandlerThread, state) != thrd_success) {
 			caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE,
@@ -166,25 +166,25 @@ void addPacketToTransferBuffer(flowOutputState state, FlowEventPacket packet,
 		caerLog(CAER_LOG_ERROR, SUBSYSTEM_FILE,
 				"Copied %d events while number of flow events is %d.",
 				j, flowNumber);
-		free(copy);
+		flowEventPacketFree(copy);
 		return;
 	}
 
 	if (!ringBufferPut(state->buffer, copy)) {
-		free(copy);
+		flowEventPacketFree(copy);
 		caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART,"Failed to add event packet to ring buffer.");
 		return;
 	}
 }
 
-static inline caerEventPacketHeader getPacketFromTransferBuffer(RingBuffer buffer) {
-	caerEventPacketHeader packet = ringBufferGet(buffer);
+static inline FlowEventPacket getPacketFromTransferBuffer(RingBuffer buffer) {
+	FlowEventPacket packet = ringBufferGet(buffer);
 	repeat: if (packet != NULL) {
 		// Are there others? Only render last one, to avoid getting backed up!
-		caerEventPacketHeader packet2 = ringBufferGet(buffer);
+		FlowEventPacket packet2 = ringBufferGet(buffer);
 
 		if (packet2 != NULL) {
-			free(packet);
+			flowEventPacketFree(packet);
 			packet = packet2;
 			goto repeat;
 		}
@@ -193,13 +193,16 @@ static inline caerEventPacketHeader getPacketFromTransferBuffer(RingBuffer buffe
 	return (packet);
 }
 
-static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
-
-	FlowEventPacket flow = (FlowEventPacket) header;
-	uint32_t packetSize = caerEventPacketHeaderGetEventNumber(header);
+static inline bool sendFlowEventPacketUart(FlowEventPacket flow) {
+	caerEventPacketHeader header = (caerEventPacketHeader) flow;
+	uint32_t packetSize = (uint32_t) caerEventPacketHeaderGetEventNumber(header);
 	if (packetSize == 0) {
 		// No events to send - return
 		return (false);
+	}
+	if (packetSize > 100) {
+		// Upper bound to packet size
+		packetSize = 100;
 	}
 
 	// Send header information for verification. First, two character sequence.
@@ -218,7 +221,7 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 	}
 
 	// Now send packet content
-	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(header); i++) {
+	for (uint32_t i = 0; i < packetSize; i++) {
 		FlowEvent e = &(flow->events[i]);
 		if (e == NULL) {
 			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Event null pointer found.");
@@ -245,15 +248,14 @@ static inline bool sendFlowEventPacketUart(caerEventPacketHeader header) {
 }
 
 static inline bool writeFlowEventPacketFile(flowOutputState state,
-		caerEventPacketHeader packet) {
+		FlowEventPacket flow) {
+	caerEventPacketHeader header = (caerEventPacketHeader) flow;
 
-	FlowEventPacket flow = (FlowEventPacket) packet;
-
-	if (caerEventPacketHeaderGetEventValid(packet) == 0) {
+	if (caerEventPacketHeaderGetEventValid(header) == 0) {
 		return (false);
 	}
 
-	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(packet); i++) {
+	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(header); i++) {
 		FlowEvent e = &(flow->events[i]);
 		if (e == NULL) {
 			caerLog(CAER_LOG_ERROR,SUBSYSTEM_FILE,"Event null pointer found.");
@@ -315,7 +317,7 @@ static int outputHandlerThread(void *stateArg) {
 
 	// Main thread loop
 	while (atomic_load_explicit(&state->running, memory_order_relaxed)) {
-		caerEventPacketHeader packet = getPacketFromTransferBuffer(state->buffer);
+		FlowEventPacket packet = getPacketFromTransferBuffer(state->buffer);
 		if (packet == NULL) { // no data: sleep for a while
 			thrd_sleep(&sleepTime, NULL);
 		}
@@ -330,12 +332,12 @@ static int outputHandlerThread(void *stateArg) {
 					caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE, "A flow packet was not written.");
 				}
 			}
-			free(packet);
+			flowEventPacketFree(packet);
 		}
 	}
 
 	// If shutdown: empty buffer before closing thread
-	caerEventPacketHeader packet;
+	FlowEventPacket packet;
 	while ((packet = getPacketFromTransferBuffer(state->buffer)) != NULL) {
 		if (state->mode == OF_OUT_UART || state->mode == OF_OUT_BOTH) {
 			if (!sendFlowEventPacketUart(packet)) {
@@ -347,7 +349,7 @@ static int outputHandlerThread(void *stateArg) {
 				caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE, "A flow packet was not written.");
 			}
 		}
-		free(packet);
+		flowEventPacketFree(packet);
 	}
 
 	return (thrd_success);
