@@ -73,9 +73,10 @@ bool initFileOutput(flowOutputState state, char* fileName, size_t bufferSize) {
 
 	state->fileLineNumber = 4;
 
-	// Start output handler thread (ONLY IF NECESSARY)
+	// Start output handler thread (ONLY IF NOT YET CALLED BY UART)
 	if (state->mode != OF_OUT_BOTH ||
 			!atomic_load_explicit(&state->running, memory_order_relaxed)) {
+		state->mode = OF_OUT_FILE; // to ensure that only file output is performed in this case
 		state->thread = 0;
 		if (thrd_create(&state->thread, &outputHandlerThread, state) != thrd_success) {
 			caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE,
@@ -200,27 +201,11 @@ static inline bool sendFlowEventPacketUart(FlowEventPacket flow) {
 		// No events to send - return
 		return (false);
 	}
-	if (packetSize > 100) {
-		// Upper bound to packet size
-		packetSize = 100;
-	}
+	// Events are separated by unsigned ints of value 255. This value should
+	// never occur as pixel location
+	unsigned char eventSeparator = 255;
 
-	// Send header information for verification. First, two character sequence.
-	char* packetSeparator = "s";
-	if (uart_tx((int) strlen(packetSeparator), (unsigned char*)packetSeparator)) {
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"First packet separator not sent.");
-		return (false);
-	}
-	if (uart_tx(sizeof(packetSize), (unsigned char*) &packetSize)) {
-			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Packet info not sent.");
-			return (false);
-	}
-	if (uart_tx((int) strlen(packetSeparator), (unsigned char*)packetSeparator)) {
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Second packet separator not sent.");
-		return (false);
-	}
-
-	// Now send packet content
+	// Iterate through packet and send events
 	for (uint32_t i = 0; i < packetSize; i++) {
 		FlowEvent e = &(flow->events[i]);
 		if (e == NULL) {
@@ -239,7 +224,8 @@ static inline bool sendFlowEventPacketUart(FlowEventPacket flow) {
 				|| uart_tx(sizeof(y),(unsigned char*) &y)
 				|| uart_tx(sizeof(t),(unsigned char*) &t)
 				|| uart_tx(sizeof(u),(unsigned char*) &u)
-				|| uart_tx(sizeof(v),(unsigned char*) &v))  {
+				|| uart_tx(sizeof(v),(unsigned char*) &v)
+				|| uart_tx(sizeof(eventSeparator), &eventSeparator))  {
 			caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Event info not fully sent.");
 			return (false);
 		}
