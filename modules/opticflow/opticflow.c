@@ -24,7 +24,10 @@ outputMode outMode = OF_OUT_FILE;
 char* UART_PORT = (char*) "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B921600;
 
-char* OUTPUT_FILE_NAME = "caerEventLog.csv";
+char* RAW_OUTPUT_FILE_NAME = "rawEventLog.csv";
+char* FLOW_OUTPUT_FILE_NAME = "flowEventLog.csv";
+int64_t MAX_N_RAW_EVENTS = 20000000;
+bool LOG_AFTER_FILTERING = false;
 
 struct OpticFlowFilter_state {
 	FlowEventBuffer buffer;
@@ -39,6 +42,7 @@ struct OpticFlowFilter_state {
 	int64_t timeInitEvent;
 	bool timeSet;
 	flowOutputState outputState;
+	FILE* rawOutputFile;
 };
 
 typedef struct OpticFlowFilter_state *OpticFlowFilterState;
@@ -117,11 +121,28 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 		}
 	}
 	if (outMode == OF_OUT_FILE || outMode == OF_OUT_BOTH) {
-		if (!initFileOutput(state->outputState, OUTPUT_FILE_NAME, RING_BUFFER_SIZE)) {
+		if (!initFileOutput(state->outputState, FLOW_OUTPUT_FILE_NAME, RING_BUFFER_SIZE)) {
 			caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
 					"UART communication not available.");
 		}
 	}
+
+	// In this branch we also log the raw event input in a separate file
+	state->rawOutputFile = fopen(RAW_OUTPUT_FILE_NAME,"w");
+	if (state->rawOutputFile == NULL) {
+		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
+				"Failed to open raw file");
+		return (false);
+	}
+	// Write creation date
+	time_t rawTime;
+	struct tm * timeInfo;
+	time (&rawTime);
+	timeInfo = localtime(&rawTime);
+	fprintf(state->rawOutputFile,"#cAER raw event data\n");
+	fprintf(state->rawOutputFile,"#Date created: %s\n",asctime(timeInfo));
+	fprintf(state->rawOutputFile,"#x,y,t,p\n");
+
 	return (true);
 }
 
@@ -154,17 +175,40 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 	// events within a certain region in the specified timeframe.
 	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber((caerEventPacketHeader) flow); i++) {
 		FlowEvent e = flowEventPacketGetEvent(flow,i);
+		// Input logging
+		uint16_t x = caerPolarityEventGetX((caerPolarityEvent) e);
+		uint16_t y = caerPolarityEventGetY((caerPolarityEvent) e);
+		if (!LOG_AFTER_FILTERING) {
+			bool p = caerPolarityEventGetPolarity((caerPolarityEvent) e);
+			if (state->rawOutputFile != NULL) {
+				static int64_t nEvents = 0;
+				if (nEvents < MAX_N_RAW_EVENTS) {
+					fprintf(state->rawOutputFile, "%i,%i,%ld,%i\n",
+							x,y,e->timestamp,p);
+					nEvents++;
+				}
+			}
+		}
 		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid events.
 
 		// Refractory period
-		uint16_t x = caerPolarityEventGetX((caerPolarityEvent) e);
-		uint16_t y = caerPolarityEventGetY((caerPolarityEvent) e);
 		FlowEvent eB = flowEventBufferRead(state->buffer,x,y,0);
 		if (e->timestamp - eB->timestamp < state->refractoryPeriod) {
 			flowEventBufferAdd(e, state->buffer); // preserve event but do not compute flow
 			caerPolarityEventInvalidate((caerPolarityEvent) e,
 					(caerPolarityEventPacket) flow);
 			continue;
+		}
+		if (LOG_AFTER_FILTERING) {
+			bool p = caerPolarityEventGetPolarity((caerPolarityEvent) e);
+			if (state->rawOutputFile != NULL) {
+				static int64_t nEvents = 0;
+				if (nEvents < MAX_N_RAW_EVENTS) {
+					fprintf(state->rawOutputFile, "%i,%i,%ld,%i\n",
+							x,y,e->timestamp,p);
+					nEvents++;
+				}
+			}
 		}
 
 		// Compute optic flow using events in buffer
@@ -249,6 +293,8 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 		}
 	}
 	free(state->outputState);
+
+	fclose(state->rawOutputFile);
 
 	// Ensure buffer is freed.
 	flowEventBufferFree(state->buffer);
