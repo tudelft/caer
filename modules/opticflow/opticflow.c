@@ -163,15 +163,16 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 			if (state->rawOutputFile == NULL) {
 				caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
 						"Failed to open file for raw event logging");
-				return (false);
 			}
-			// Write header comments
-			fprintf(state->rawOutputFile,"#cAER raw event data\n");
-			fprintf(state->rawOutputFile,"#Date created: %s\n",asctime(timeInfo));
-			fprintf(state->rawOutputFile,"#x,y,t,p\n");
-			caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-					"Writing a maximum of %lld raw events to %s",
-					MAX_N_RAW_EVENTS, fileName);
+			else {
+				// Write header comments
+				fprintf(state->rawOutputFile,"#cAER raw event data\n");
+				fprintf(state->rawOutputFile,"#Date created: %s\n",asctime(timeInfo));
+				fprintf(state->rawOutputFile,"#x,y,t,p\n");
+				caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
+						"Writing a maximum of %lld raw events to %s",
+						MAX_N_RAW_EVENTS, fileName);
+			}
 		}
 	}
 
