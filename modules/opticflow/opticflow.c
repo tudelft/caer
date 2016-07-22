@@ -144,12 +144,12 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 		int64_t bytesFree = (int64_t) stat.f_bsize * (int64_t) stat.f_bavail;
 		if (bytesFree <= EVENT_STORAGE_MARGIN) {
 			caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
-					"Only %ld bytes available - raw logging disabled for safety", bytesFree);
+					"Only %lld bytes available - raw logging disabled for safety", bytesFree);
 		}
 		else {
 			MAX_N_RAW_EVENTS = (bytesFree - EVENT_STORAGE_MARGIN) / RAW_EVENT_BYTES;
 			caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-					"%ld bytes available for logging", bytesFree);
+					"%lld bytes available for logging", bytesFree);
 			// Get timestamp info
 			time_t rawTime;
 			time (&rawTime);
@@ -170,7 +170,7 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 			fprintf(state->rawOutputFile,"#Date created: %s\n",asctime(timeInfo));
 			fprintf(state->rawOutputFile,"#x,y,t,p\n");
 			caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-					"Writing a maximum of %ld raw events to %s",
+					"Writing a maximum of %lld raw events to %s",
 					MAX_N_RAW_EVENTS, fileName);
 		}
 	}
