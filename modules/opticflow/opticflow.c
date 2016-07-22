@@ -15,6 +15,8 @@
 #include "flowOutput.h"
 #include "termios.h"
 
+#include <sys/statfs.h>
+
 #define FLOW_BUFFER_SIZE 3
 #define RING_BUFFER_SIZE 1024
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1/115.0
@@ -24,10 +26,12 @@ outputMode outMode = OF_OUT_FILE;
 char* UART_PORT = (char*) "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B921600;
 
-char* RAW_OUTPUT_FILE_NAME = "rawEventLog.csv";
-char* FLOW_OUTPUT_FILE_NAME = "flowEventLog.csv";
-int64_t MAX_N_RAW_EVENTS = 20000000;
+char* RAW_OUTPUT_FILE_NAME = "logs/rawEventLog";
+char* FLOW_OUTPUT_FILE_NAME = "logs/flowEventLog.csv";
+int64_t RAW_EVENT_BYTES = 20; // approximate raw event storage size in bytes
+int64_t EVENT_STORAGE_MARGIN = 100000000; // 100MB margin for storing events
 bool LOG_AFTER_FILTERING = false;
+int64_t MAX_N_RAW_EVENTS;
 
 struct OpticFlowFilter_state {
 	FlowEventBuffer buffer;
@@ -127,21 +131,49 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 		}
 	}
 
-	// In this branch we also log the raw event input in a separate file
-	state->rawOutputFile = fopen(RAW_OUTPUT_FILE_NAME,"w");
-	if (state->rawOutputFile == NULL) {
-		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
-				"Failed to open raw file");
-		return (false);
+	// In this (git) branch we also log the raw event input in a separate file
+	// Since storage space on the Odroid is limited, we check how much is available
+	// and limit the log file size to this.
+	struct statfs stat;
+	if (statfs(".", &stat) != 0) {
+		// error happens, just quits here
+		caerLog(CAER_LOG_ERROR, moduleData->moduleSubSystemString,
+				"Raw event logging init failed at finding storage space.");
 	}
-	// Write creation date
-	time_t rawTime;
-	struct tm * timeInfo;
-	time (&rawTime);
-	timeInfo = localtime(&rawTime);
-	fprintf(state->rawOutputFile,"#cAER raw event data\n");
-	fprintf(state->rawOutputFile,"#Date created: %s\n",asctime(timeInfo));
-	fprintf(state->rawOutputFile,"#x,y,t,p\n");
+	else {
+		int64_t bytesFree = (int64_t) stat.f_bsize * (int64_t) stat.f_bavail;
+		if (bytesFree <= EVENT_STORAGE_MARGIN) {
+			caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
+					"Only %ld bytes available - raw logging disabled for safety", bytesFree);
+		}
+		else {
+			MAX_N_RAW_EVENTS = (bytesFree - EVENT_STORAGE_MARGIN) / RAW_EVENT_BYTES;
+			caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
+					"%ld bytes available for logging", bytesFree);
+			// Get timestamp info
+			time_t rawTime;
+			time (&rawTime);
+			const struct tm * timeInfo = localtime(&rawTime);
+			char fileName[128];
+			char fileTimestamp[64];
+			strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%T", timeInfo);
+			sprintf(fileName, "%s_%s.csv", RAW_OUTPUT_FILE_NAME, fileTimestamp);
+			// Open file
+			state->rawOutputFile = fopen(fileName,"w");
+			if (state->rawOutputFile == NULL) {
+				caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
+						"Failed to open file for raw event logging");
+				return (false);
+			}
+			// Write header comments
+			fprintf(state->rawOutputFile,"#cAER raw event data\n");
+			fprintf(state->rawOutputFile,"#Date created: %s\n",asctime(timeInfo));
+			fprintf(state->rawOutputFile,"#x,y,t,p\n");
+			caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
+					"Writing a maximum of %ld raw events to %s",
+					MAX_N_RAW_EVENTS, fileName);
+		}
+	}
 
 	return (true);
 }
@@ -293,8 +325,9 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 		}
 	}
 	free(state->outputState);
-
-	fclose(state->rawOutputFile);
+	if (state->rawOutputFile != NULL) {
+		fclose(state->rawOutputFile);
+	}
 
 	// Ensure buffer is freed.
 	flowEventBufferFree(state->buffer);
