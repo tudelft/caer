@@ -49,7 +49,16 @@ bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t
 	return (true);
 }
 
-bool initFileOutput(flowOutputState state, char* fileName, size_t bufferSize) {
+bool initFileOutput(flowOutputState state, char* fileBaseName, size_t bufferSize) {
+	// Get timestamp info
+	time_t rawTime;
+	time (&rawTime);
+	const struct tm * timeInfo = localtime(&rawTime);
+	char fileName[128];
+	char fileTimestamp[64];
+	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%T", timeInfo);
+	sprintf(fileName, "%s_%s.csv", fileBaseName, fileTimestamp);
+
 	// Initialize file communication
 	state->file = fopen(fileName,"w+");
 	if (state->file == NULL) {
@@ -63,10 +72,6 @@ bool initFileOutput(flowOutputState state, char* fileName, size_t bufferSize) {
 		return (false);
 	}
 	// Write creation date
-	time_t rawTime;
-	struct tm * timeInfo;
-	time (&rawTime);
-	timeInfo = localtime(&rawTime);
 	fprintf(state->file,"#Date created: %s\n",asctime(timeInfo));
 	// Write column legend
 	fprintf(state->file,"#x,y,t,p,u,v\n");
@@ -91,7 +96,7 @@ bool initFileOutput(flowOutputState state, char* fileName, size_t bufferSize) {
 		}
 		atomic_store(&state->running, true);
 	}
-	caerLog(CAER_LOG_NOTICE, SUBSYSTEM_FILE, "Logging events to fileName %s",fileName);
+	caerLog(CAER_LOG_NOTICE, SUBSYSTEM_FILE, "Logging flow events to %s",fileName);
 
 	return (true);
 }
