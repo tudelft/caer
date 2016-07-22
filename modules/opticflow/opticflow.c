@@ -219,6 +219,13 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 							x,y,e->timestamp,p);
 					nEvents++;
 				}
+				else {
+					fprintf(state->rawOutputFile, "# Size limit reached - log terminated\n");
+					caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
+							"Raw log size limit reached - terminating logging");
+					fclose(state->rawOutputFile);
+					state->rawOutputFile = NULL;
+				}
 			}
 		}
 		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid events.
@@ -239,6 +246,13 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 					fprintf(state->rawOutputFile, "%i,%i,%ld,%i\n",
 							x,y,e->timestamp,p);
 					nEvents++;
+				}
+				else {
+					fprintf(state->rawOutputFile, "# Size limit reached - log terminated\n");
+					caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
+							"Raw log size limit reached - terminating logging");
+					fclose(state->rawOutputFile);
+					state->rawOutputFile = NULL;
 				}
 			}
 		}
