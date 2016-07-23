@@ -27,8 +27,8 @@ char* UART_PORT = (char*) "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B921600;
 
 char* RAW_OUTPUT_FILE_NAME = "logs/rawEventLog";
-char* FLOW_OUTPUT_FILE_NAME = "logs/flowEventLog.csv";
-int64_t RAW_EVENT_BYTES = 20; // approximate raw event storage size in bytes
+char* FLOW_OUTPUT_FILE_NAME = "logs/flowEventLog";
+int64_t RAW_EVENT_BYTES = 8; // approximate raw event storage size in bytes
 int64_t EVENT_STORAGE_MARGIN = 100000000; // 100MB margin for storing events
 bool LOG_AFTER_FILTERING = false;
 int64_t MAX_N_RAW_EVENTS;
@@ -57,6 +57,8 @@ static void caerOpticFlowFilterConfig(caerModuleData moduleData);
 static void caerOpticFlowFilterExit(caerModuleData moduleData);
 static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID);
 static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent);
+static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, char* fileBaseName);
+static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, FlowEvent e);
 
 static struct caer_module_functions caerOpticFlowFilterFunctions = { .moduleInit =
 	&caerOpticFlowFilterInit, .moduleRun = &caerOpticFlowFilterRun, .moduleConfig =
@@ -131,50 +133,7 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 		}
 	}
 
-	// In this (git) branch we also log the raw event input in a separate file
-	// Since storage space on the Odroid is limited, we check how much is available
-	// and limit the log file size to this.
-	struct statfs stat;
-	if (statfs(".", &stat) != 0) {
-		// error happens, just quits here
-		caerLog(CAER_LOG_ERROR, moduleData->moduleSubSystemString,
-				"Raw event logging init failed at finding storage space.");
-	}
-	else {
-		int64_t bytesFree = (int64_t) stat.f_bsize * (int64_t) stat.f_bavail;
-		if (bytesFree <= EVENT_STORAGE_MARGIN) {
-			caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
-					"Only %lld bytes available - raw logging disabled for safety", bytesFree);
-		}
-		else {
-			MAX_N_RAW_EVENTS = (bytesFree - EVENT_STORAGE_MARGIN) / RAW_EVENT_BYTES;
-			caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-					"%lld bytes available for logging", bytesFree);
-			// Get timestamp info
-			time_t rawTime;
-			time (&rawTime);
-			const struct tm * timeInfo = localtime(&rawTime);
-			char fileName[128];
-			char fileTimestamp[64];
-			strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%T", timeInfo);
-			sprintf(fileName, "%s_%s.csv", RAW_OUTPUT_FILE_NAME, fileTimestamp);
-			// Open file
-			state->rawOutputFile = fopen(fileName,"w");
-			if (state->rawOutputFile == NULL) {
-				caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
-						"Failed to open file for raw event logging");
-			}
-			else {
-				// Write header comments
-				fprintf(state->rawOutputFile,"#cAER raw event data\n");
-				fprintf(state->rawOutputFile,"#Date created: %s\n",asctime(timeInfo));
-				fprintf(state->rawOutputFile,"#x,y,t,p\n");
-				caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-						"Writing a maximum of %lld raw events to %s",
-						MAX_N_RAW_EVENTS, fileName);
-			}
-		}
-	}
+	openAEDatFile(state, moduleData, RAW_OUTPUT_FILE_NAME);
 
 	return (true);
 }
@@ -209,29 +168,14 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber((caerEventPacketHeader) flow); i++) {
 		FlowEvent e = flowEventPacketGetEvent(flow,i);
 		// Input logging
-		uint16_t x = caerPolarityEventGetX((caerPolarityEvent) e);
-		uint16_t y = caerPolarityEventGetY((caerPolarityEvent) e);
 		if (!LOG_AFTER_FILTERING) {
-			bool p = caerPolarityEventGetPolarity((caerPolarityEvent) e);
-			if (state->rawOutputFile != NULL) {
-				static int64_t nEvents = 0;
-				if (nEvents < MAX_N_RAW_EVENTS) {
-					fprintf(state->rawOutputFile, "%i,%i,%ld,%i\n",
-							x,y,e->timestamp,p);
-					nEvents++;
-				}
-				else {
-					fprintf(state->rawOutputFile, "# Size limit reached - log terminated\n");
-					caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
-							"Raw log size limit reached - terminating logging");
-					fclose(state->rawOutputFile);
-					state->rawOutputFile = NULL;
-				}
-			}
+			writeAEDatFile(state, moduleData, e);
 		}
 		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid events.
 
 		// Refractory period
+		uint16_t x = caerPolarityEventGetX((caerPolarityEvent) e);
+		uint16_t y = caerPolarityEventGetY((caerPolarityEvent) e);
 		FlowEvent eB = flowEventBufferRead(state->buffer,x,y,0);
 		if (e->timestamp - eB->timestamp < state->refractoryPeriod) {
 			flowEventBufferAdd(e, state->buffer); // preserve event but do not compute flow
@@ -240,22 +184,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			continue;
 		}
 		if (LOG_AFTER_FILTERING) {
-			bool p = caerPolarityEventGetPolarity((caerPolarityEvent) e);
-			if (state->rawOutputFile != NULL) {
-				static int64_t nEvents = 0;
-				if (nEvents < MAX_N_RAW_EVENTS) {
-					fprintf(state->rawOutputFile, "%i,%i,%ld,%i\n",
-							x,y,e->timestamp,p);
-					nEvents++;
-				}
-				else {
-					fprintf(state->rawOutputFile, "# Size limit reached - log terminated\n");
-					caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
-							"Raw log size limit reached - terminating logging");
-					fclose(state->rawOutputFile);
-					state->rawOutputFile = NULL;
-				}
-			}
+			writeAEDatFile(state, moduleData, e);
 		}
 
 		// Compute optic flow using events in buffer
@@ -388,5 +317,82 @@ static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent) {
 			delay = 0;
 		}
 		return (delay);
+	}
+}
+
+static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, char* fileBaseName) {
+	// In this (git) branch we also log the raw event input in an AEDAT3.1 file
+	// Since storage space on the Odroid is limited, we check how much is available
+	// and limit the log file size to this.
+	struct statfs stat;
+	if (statfs(".", &stat) != 0) {
+		// error happens, just quits here
+		caerLog(CAER_LOG_ERROR, moduleData->moduleSubSystemString,
+				"Raw event logging init failed at finding storage space.");
+		return (false);
+	}
+	int64_t bytesFree = (int64_t) stat.f_bsize * (int64_t) stat.f_bavail;
+	if (bytesFree <= EVENT_STORAGE_MARGIN) {
+		caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
+				"Only %lld bytes available - raw logging disabled for safety", bytesFree);
+		return (false);
+	}
+	MAX_N_RAW_EVENTS = (bytesFree - EVENT_STORAGE_MARGIN) / RAW_EVENT_BYTES;
+	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
+			"%lld bytes available for logging", bytesFree);
+
+	// Get time info
+	time_t rawTime;
+	time (&rawTime);
+	const struct tm * timeInfo = localtime(&rawTime);
+	char fileName[128];
+	char fileTimestamp[64];
+	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%T", timeInfo);
+	sprintf(fileName, "%s_%s.aedat", fileBaseName, fileTimestamp);
+
+	// Open file
+	state->rawOutputFile = fopen(fileName,"w");
+	if (state->rawOutputFile == NULL) {
+		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
+				"Failed to open file for raw event logging");
+		return (false);
+	}
+
+	// Write header (based on output_common.c)
+	fprintf(state->rawOutputFile,"#!AER-DAT3.0\n");
+	fprintf(state->rawOutputFile,"#Format: RAW\r\n");
+	char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(1), "sourceString");
+	fprintf(state->rawOutputFile,sourceString);
+	free(sourceString);
+
+	size_t currentTimeStringLength = 45;
+	char currentTimeString[currentTimeStringLength]; // + 1 for terminating NUL byte.
+	strftime(currentTimeString, currentTimeStringLength,
+			"#Start-Time: %Y-%m-%d %H:%M:%S (TZ%z)\n", timeInfo);
+
+	fprintf(state->rawOutputFile, currentTimeString);
+	fprintf(state->rawOutputFile, "#!END-HEADER\n");
+	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
+			"Writing a maximum of %lld raw events to %s",
+			MAX_N_RAW_EVENTS, fileName);
+	return (true);
+}
+
+static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, FlowEvent e) {
+	if (state->rawOutputFile != NULL) {
+		static int64_t nEvents = 0;
+		if (nEvents < MAX_N_RAW_EVENTS) {
+			fwrite(&e->data, 1, sizeof(e->data), state->rawOutputFile);
+			uint32_t t = (uint32_t) caerPolarityEventGetTimestamp((caerPolarityEvent) e);
+			fwrite(&t, 1, sizeof(t), state->rawOutputFile);
+			nEvents++;
+		}
+		else {
+			fprintf(state->rawOutputFile, "# Size limit reached - log terminated\n");
+			caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
+					"Raw log size limit reached - terminating logging");
+			fclose(state->rawOutputFile);
+			state->rawOutputFile = NULL;
+		}
 	}
 }
