@@ -375,6 +375,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
 			"Writing a maximum of %lld raw events to %s",
 			MAX_N_RAW_EVENTS, fileName);
+
 	return (true);
 }
 
@@ -383,12 +384,11 @@ static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData
 		static int64_t nEvents = 0;
 		if (nEvents < MAX_N_RAW_EVENTS) {
 			fwrite(&e->data, 1, sizeof(e->data), state->rawOutputFile);
-			uint32_t t = (uint32_t) caerPolarityEventGetTimestamp((caerPolarityEvent) e);
+			int32_t t = e->timestamp;
 			fwrite(&t, 1, sizeof(t), state->rawOutputFile);
 			nEvents++;
 		}
 		else {
-			fprintf(state->rawOutputFile, "# Size limit reached - log terminated\n");
 			caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
 					"Raw log size limit reached - terminating logging");
 			fclose(state->rawOutputFile);
