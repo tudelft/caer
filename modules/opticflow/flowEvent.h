@@ -22,7 +22,7 @@
  */
 struct flow_event {
 	uint32_t data;
-	int64_t timestamp;
+	int32_t timestamp;
 	double u,v;
 	bool hasFlow;
 }__attribute__((__packed__));
@@ -72,7 +72,7 @@ typedef struct flow_event_buffer *FlowEventBuffer;
  *  Flow event initialization. By default, a flow event is not assigned
  *  any optic flow value.
 */
-static inline struct flow_event flowEventInit(uint32_t data, int64_t timestamp) {
+static inline struct flow_event flowEventInit(uint32_t data, int32_t timestamp) {
 	struct flow_event e;
 	e.data = data;
 	e.timestamp = timestamp;
@@ -87,7 +87,7 @@ static inline struct flow_event flowEventInit(uint32_t data, int64_t timestamp) 
 */
 static inline struct flow_event flowEventInitFromPolarity(caerPolarityEvent polarity, caerPolarityEventPacket packet) {
 	uint32_t data = polarity->data;
-	int64_t  timestamp = caerPolarityEventGetTimestamp64(polarity,packet);
+	int32_t  timestamp = caerPolarityEventGetTimestamp(polarity);
 	return (flowEventInit(data,timestamp));
 }
 
