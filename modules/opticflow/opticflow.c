@@ -16,6 +16,8 @@
 #include "termios.h"
 
 #include <sys/statfs.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #define FLOW_BUFFER_SIZE 3
 #define RING_BUFFER_SIZE 1024
@@ -324,14 +326,14 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	// In this (git) branch we also log the raw event input in an AEDAT3.1 file
 	// Since storage space on the Odroid is limited, we check how much is available
 	// and limit the log file size to this.
-	struct statfs stat;
-	if (statfs(".", &stat) != 0) {
+	struct statfs stfs;
+	if (statfs(".", &stfs) != 0) {
 		// error happens, just quits here
 		caerLog(CAER_LOG_ERROR, moduleData->moduleSubSystemString,
 				"Raw event logging init failed at finding storage space.");
 		return (false);
 	}
-	int64_t bytesFree = (int64_t) stat.f_bsize * (int64_t) stat.f_bavail;
+	int64_t bytesFree = (int64_t) stfs.f_bsize * (int64_t) stfs.f_bavail;
 	if (bytesFree <= EVENT_STORAGE_MARGIN) {
 		caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
 				"Only %lld bytes available - raw logging disabled for safety", bytesFree);
@@ -350,6 +352,16 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%T", timeInfo);
 	sprintf(fileName, "%s_%s.aedat", fileBaseName, fileTimestamp);
 
+	// Check if filename exists
+	struct stat st;
+	int n = 0;
+	while (stat(fileName,&st) == 0) {
+		caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
+				"Filename %s is already used.", fileName);
+		n++;
+		sprintf(fileName, "%s_%s_%d.aedat",
+				fileBaseName, fileTimestamp, n);
+	}
 	// Open file
 	state->rawOutputFile = fopen(fileName,"w");
 	if (state->rawOutputFile == NULL) {

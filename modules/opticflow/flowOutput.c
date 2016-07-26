@@ -6,6 +6,10 @@
  */
 
 #include "flowOutput.h"
+
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #define SUBSYSTEM_UART "UART"
 #define SUBSYSTEM_FILE "Event logger"
 #define FILE_MAX_NUMBER_OF_LINES 5000000
@@ -58,6 +62,16 @@ bool initFileOutput(flowOutputState state, char* fileBaseName, size_t bufferSize
 	char fileTimestamp[64];
 	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%T", timeInfo);
 	sprintf(fileName, "%s_%s.csv", fileBaseName, fileTimestamp);
+
+	// Check if filename exists
+	struct stat st;
+	int n = 0;
+	while (stat(fileName,&st) == 0) {
+		caerLog(CAER_LOG_WARNING, SUBSYSTEM_FILE,
+				"Filename %s is already used.", fileName);
+		n++;
+		sprintf(fileName, "%s_%s_%d.csv", fileBaseName, fileTimestamp, n);
+	}
 
 	// Initialize file communication
 	state->file = fopen(fileName,"w+");
