@@ -29,6 +29,7 @@ char* UART_PORT = (char*) "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B921600;
 
 char* RAW_OUTPUT_FILE_NAME = "logs/rawEventLog";
+char* TIMING_OUTPUT_FILE_NAME = "logs/timingLog";
 char* FLOW_OUTPUT_FILE_NAME = "logs/flowEventLog";
 int64_t RAW_EVENT_BYTES = 8; // approximate raw event storage size in bytes
 int64_t EVENT_STORAGE_MARGIN = 100000000; // 100MB margin for storing events
@@ -49,6 +50,7 @@ struct OpticFlowFilter_state {
 	bool timeSet;
 	flowOutputState outputState;
 	FILE* rawOutputFile;
+	FILE* timingOutputFile;
 };
 
 typedef struct OpticFlowFilter_state *OpticFlowFilterState;
@@ -78,7 +80,7 @@ void caerOpticFlowFilter(uint16_t moduleID, FlowEventPacket flow) {
 static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	sshsNodePutLongIfAbsent(moduleData->moduleNode, "refractoryPeriod", 10000);
 
-	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMin", 3);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMin", 3000);
 	sshsNodePutLongIfAbsent(moduleData->moduleNode, "flow_dtMax", 300000);
 	sshsNodePutIntIfAbsent(moduleData->moduleNode,  "flow_dx", 3);
 	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "flow_thr1", 1E5);
@@ -214,7 +216,9 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			delay = computeTimeDelay(state, e->timestamp);
 			double packetTimeDiff = (double) (e->timestamp - flowEventPacketGetEvent(flow,0)->timestamp);
 			double flowRate = flowCount / (packetTimeDiff+0.00001);
-			state->flowRate += (flowRate-state->flowRate)/500;
+			state->flowRate += (flowRate-state->flowRate)/50;
+			// Log timing info
+			fprintf(state->timingOutputFile, "%lld, %lld, %f\n", e->timestamp, delay, state->flowRate*1e6);
 		}
 	}
 
@@ -274,6 +278,9 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 	if (state->rawOutputFile != NULL) {
 		fclose(state->rawOutputFile);
 	}
+	if (state->timingOutputFile != NULL) {
+			fclose(state->timingOutputFile);
+		}
 
 	// Ensure buffer is freed.
 	flowEventBufferFree(state->buffer);
@@ -387,6 +394,23 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
 			"Writing a maximum of %lld raw events to %s",
 			MAX_N_RAW_EVENTS, fileName);
+
+	// Now we also log time delay
+	sprintf(fileName, "%s_%s.csv",
+			TIMING_OUTPUT_FILE_NAME, fileTimestamp);
+	if (n > 0)
+		sprintf(fileName, "%s_%s_%d.csv",
+			fileBaseName, fileTimestamp, n);
+	state->timingOutputFile = fopen(fileName,"w");
+	if (state->timingOutputFile == NULL) {
+		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
+				"Failed to open file for timing logging");
+		return (false);
+	}
+	fprintf(state->timingOutputFile, "#Timing data for each event packet\n");
+	fprintf(state->timingOutputFile, "#timestamp [us], delay [us], flowRate [1/s]\n");
+	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
+				"Writing timing info to %s",fileName);
 
 	return (true);
 }
