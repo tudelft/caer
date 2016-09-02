@@ -8,6 +8,7 @@
 #include "opticflow.h"
 #include "base/mainloop.h"
 #include "base/module.h"
+#include "ext/buffers.h"
 #include "ext/portable_time.h"
 #include "flowEvent.h"
 #include "flowBenosman2014.h"
@@ -43,7 +44,7 @@ struct OpticFlowFilter_state {
 	bool enableFlowRegularization;
 	int64_t refractoryPeriod;
 	int8_t subSampleBy;
-	double wx, wy;
+	double wx, wy, D;
 	double flowRate;
 	struct timespec timeInit;
 	int64_t timeInitEvent;
@@ -51,6 +52,16 @@ struct OpticFlowFilter_state {
 	flowOutputState outputState;
 	FILE* rawOutputFile;
 	FILE* timingOutputFile;
+
+	bool enableAdaptiveBAFilter;
+	int64_t lastFlowTimestamp;
+	double BAFilterThreshold;
+	double adaptiveFilterGain;
+	double adaptiveFilterRateSetpoint;
+	double adaptiveFilterTimeConstant;
+	int64_t adaptiveFilterDtMin;
+	int64_t adaptiveFilterDtMax;
+	simple2DBufferLong lastTSMap;
 };
 
 typedef struct OpticFlowFilter_state *OpticFlowFilterState;
@@ -59,7 +70,7 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData);
 static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber, va_list args);
 static void caerOpticFlowFilterConfig(caerModuleData moduleData);
 static void caerOpticFlowFilterExit(caerModuleData moduleData);
-static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID);
+static bool allocateBuffers(OpticFlowFilterState state, int16_t sourceID);
 static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent);
 static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, char* fileBaseName);
 static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, FlowEvent e);
@@ -92,6 +103,13 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "filter_dMag", 1.0);
 	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "filter_dAngle", 20);
 
+	sshsNodePutBoolIfAbsent(moduleData->moduleNode, "adaptive_enable",true);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "adaptive_dtMin", 100);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "adaptive_dtMax", 1000000);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "adaptive_rateSP", 600.0);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "adaptive_gain", 2.0);
+	sshsNodePutDoubleIfAbsent(moduleData->moduleNode, "adaptive_tau", 0.01);
+
 	sshsNodePutByteIfAbsent(moduleData->moduleNode, "subSampleBy", 0);
 
 	OpticFlowFilterState state = moduleData->moduleState;
@@ -110,12 +128,23 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	state->filterParams.maxSpeedFactor = sshsNodeGetDouble(moduleData->moduleNode, "filter_dMag");
 	state->filterParams.maxAngle = sshsNodeGetDouble(moduleData->moduleNode, "filter_dAngle");
 
+	state->enableAdaptiveBAFilter = sshsNodeGetBool(moduleData->moduleNode, "adaptive_enable");
+	state->adaptiveFilterDtMin = sshsNodeGetLong(moduleData->moduleNode,"adaptive_dtMin");
+	state->adaptiveFilterDtMax = sshsNodeGetLong(moduleData->moduleNode,"adaptive_dtMax");
+	state->adaptiveFilterRateSetpoint = sshsNodeGetDouble(moduleData->moduleNode,"adaptive_rateSP");
+	state->adaptiveFilterGain = sshsNodeGetDouble(moduleData->moduleNode,"adaptive_gain");
+	state->adaptiveFilterTimeConstant = sshsNodeGetDouble(moduleData->moduleNode,"adaptive_gain");
+
 	state->subSampleBy = sshsNodeGetByte(moduleData->moduleNode, "subSampleBy");
 
 	state->wx = 0;
 	state->wy = 0;
-
+	state->D = 0;
+	state->flowRate = 0;
 	state->timeSet = false;
+
+	state->lastFlowTimestamp = 0;
+	state->BAFilterThreshold = (double) state->adaptiveFilterDtMax;
 
 	// Add config listeners last, to avoid having them dangling if Init doesn't succeed.
 	sshsNodeAddAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
@@ -157,7 +186,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 
 	// If the map is not allocated yet, do it.
 	if (state->buffer == NULL) {
-		if (!allocateBuffer(state, caerEventPacketHeaderGetEventSource((caerEventPacketHeader) flow))) {
+		if (!allocateBuffers(state, caerEventPacketHeaderGetEventSource((caerEventPacketHeader) flow))) {
 			// Failed to allocate memory, nothing to do.
 			caerLog(CAER_LOG_ERROR, moduleData->moduleSubSystemString, "Failed to allocate memory for timestampMap.");
 			return;
@@ -177,48 +206,112 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		}
 		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid events.
 
-		// Refractory period
+		// Adaptive BA filter here, so not within separate module
 		uint16_t x = caerPolarityEventGetX((caerPolarityEvent) e);
 		uint16_t y = caerPolarityEventGetY((caerPolarityEvent) e);
-		FlowEvent eB = flowEventBufferRead(state->buffer,x,y,0);
-		if (e->timestamp - eB->timestamp < state->refractoryPeriod) {
-			flowEventBufferAdd(e, state->buffer); // preserve event but do not compute flow
+		int64_t lastTS = state->lastTSMap->buffer2d[x][y];
+		if ((I64T(e->timestamp - lastTS) >= I64T(state->BAFilterThreshold)) || (lastTS == 0)) {
+			// Filter out invalid.
 			caerPolarityEventInvalidate((caerPolarityEvent) e,
 					(caerPolarityEventPacket) flow);
-			continue;
-		}
-		if (LOG_AFTER_FILTERING) {
-			writeAEDatFile(state, moduleData, e);
 		}
 
-		// Compute optic flow using events in buffer
-		flowBenosman2014(e,state->buffer,state->flowParams);
+		// Update neighboring region.
+		size_t sizeMaxX = (state->lastTSMap->sizeX - 1);
+		size_t sizeMaxY = (state->lastTSMap->sizeY - 1);
 
-		// Add event to buffer
-		flowEventBufferAdd(e,state->buffer);
-
-		// Apply flow regularization filter
-		if (state->enableFlowRegularization) {
-			flowRegularizationFilter(e,state->buffer,state->filterParams);
+		if (x > 0) {
+			state->lastTSMap->buffer2d[x - 1][y] = e->timestamp;
+		}
+		if (x < sizeMaxX) {
+			state->lastTSMap->buffer2d[x + 1][y] = e->timestamp;
 		}
 
-		// For now, estimate average ventral flows for debugging purposes
+		if (y > 0) {
+			state->lastTSMap->buffer2d[x][y - 1] = e->timestamp;
+		}
+		if (y < sizeMaxY) {
+			state->lastTSMap->buffer2d[x][y + 1] = e->timestamp;
+		}
+
+		if (x > 0 && y > 0) {
+			state->lastTSMap->buffer2d[x - 1][y - 1] = e->timestamp;
+		}
+		if (x < sizeMaxX && y < sizeMaxY) {
+			state->lastTSMap->buffer2d[x + 1][y + 1] = e->timestamp;
+		}
+
+		if (x > 0 && y < sizeMaxY) {
+			state->lastTSMap->buffer2d[x - 1][y + 1] = e->timestamp;
+		}
+		if (x < sizeMaxX && y > 0) {
+			state->lastTSMap->buffer2d[x + 1][y - 1] = e->timestamp;
+		}
+
+		if (caerPolarityEventIsValid((caerPolarityEvent) e)) {
+
+			// Refractory period
+			FlowEvent eB = flowEventBufferRead(state->buffer,x,y,0);
+			if (e->timestamp - eB->timestamp < state->refractoryPeriod) {
+				caerPolarityEventInvalidate((caerPolarityEvent) e,
+						(caerPolarityEventPacket) flow);
+				continue;
+			}
+
+			// Compute optic flow using events in buffer
+			flowBenosman2014(e,state->buffer,state->flowParams);
+
+			// Add event to buffer
+			flowEventBufferAdd(e,state->buffer);
+
+			// Apply flow regularization filter
+			if (state->enableFlowRegularization) {
+				flowRegularizationFilter(e,state->buffer,state->filterParams);
+			}
+		}
+
+		// Estimate flow rate and regulate through BA filter
+		double dt = (double)(e->timestamp - state->lastFlowTimestamp)/1.0e6;
+		double flowRate = 1.0 / (dt+0.00001);
+		double tFactor = dt/state->adaptiveFilterTimeConstant;
+		if (tFactor > 1.0) tFactor = 1.0;
+		state->flowRate += (flowRate-state->flowRate)*tFactor;
+
+		if (state->enableAdaptiveBAFilter) {
+			if (state->flowRate < state->adaptiveFilterRateSetpoint) {
+				if (state->BAFilterThreshold < state->adaptiveFilterDtMax) {
+					state->BAFilterThreshold *= state->adaptiveFilterGain;
+				}
+			}
+			if (state->flowRate > state->adaptiveFilterRateSetpoint) {
+				if (state->BAFilterThreshold > state->adaptiveFilterDtMin) {
+					state->BAFilterThreshold *= 1.0/state->adaptiveFilterGain;
+				}
+			}
+		}
+
 		if (e->hasFlow) {
+			// For now, estimate average ventral flows for debugging purposes
 			double wxNew = e->u*DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW;
 			double wyNew = e->v*DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW;
-			state->wx += (wxNew-state->wx)/2;
-			state->wy += (wyNew-state->wy)/2;
+			double dx = x - 76.7;
+			double dy = y - 56.93;
+			double DNew = 2*(dx*e->u + dy*e->v)/(dx*dx + dy*dy);
+			if (tFactor > 0.1) tFactor = 0.1;
+			state->wx += (wxNew-state->wx)*tFactor;
+			state->wy += (wyNew-state->wy)*tFactor;
+			state->D += (DNew-state->D)*tFactor;
 			flowCount++;
+
+			state->lastFlowTimestamp = e->timestamp;
 		}
 
 		// Estimate time delay and flow event rate using last event
 		if (caerEventPacketHeaderGetEventNumber((caerEventPacketHeader) flow) - i == 1) {
 			delay = computeTimeDelay(state, e->timestamp);
-			double packetTimeDiff = (double) (e->timestamp - flowEventPacketGetEvent(flow,0)->timestamp);
-			double flowRate = flowCount / (packetTimeDiff+0.00001);
-			state->flowRate += (flowRate-state->flowRate)/50;
 			// Log timing info
-			fprintf(state->timingOutputFile, "%lld, %lld, %f\n", e->timestamp, delay, state->flowRate*1e6);
+			fprintf(state->timingOutputFile, "%d, %ld, %f, %f, %f, %f\n", e->timestamp, delay, state->flowRate,
+					state->wx, state->wy, state->D);
 		}
 	}
 
@@ -229,10 +322,10 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 	}
 
 	// Print average optic flow, time delay, and flow rate
-//	fprintf(stdout, "%c[2K", 27);
-//	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. delay: %ld ms. rate: %3.3fk",
-//			state->wx, state->wy, delay/1000, state->flowRate*1e3);
-//	fflush(stdout);
+	fprintf(stdout, "%c[2K", 27);
+	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. D: %1.3f. delay: %ld ms. rate: %3.3fk",
+			state->wx, state->wy, state->D, delay/1000, state->flowRate/1e3);
+	fflush(stdout);
 }
 
 static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
@@ -253,6 +346,13 @@ static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
 	state->filterParams.dx = (uint16_t) sshsNodeGetInt(moduleData->moduleNode, "filter_dx");
 	state->filterParams.maxSpeedFactor = sshsNodeGetDouble(moduleData->moduleNode, "filter_dMag");
 	state->filterParams.maxAngle = sshsNodeGetDouble(moduleData->moduleNode, "filter_dAngle");
+
+	state->enableAdaptiveBAFilter = sshsNodeGetBool(moduleData->moduleNode, "adaptive_enable");
+	state->adaptiveFilterDtMin = sshsNodeGetLong(moduleData->moduleNode,"adaptive_dtMin");
+	state->adaptiveFilterDtMax = sshsNodeGetLong(moduleData->moduleNode,"adaptive_dtMax");
+	state->adaptiveFilterRateSetpoint = sshsNodeGetDouble(moduleData->moduleNode,"adaptive_rateSP");
+	state->adaptiveFilterGain = sshsNodeGetDouble(moduleData->moduleNode,"adaptive_gain");
+	state->adaptiveFilterTimeConstant = sshsNodeGetDouble(moduleData->moduleNode,"adaptive_gain");
 
 	state->subSampleBy = sshsNodeGetByte(moduleData->moduleNode, "subSampleBy");
 }
@@ -279,14 +379,14 @@ static void caerOpticFlowFilterExit(caerModuleData moduleData) {
 		fclose(state->rawOutputFile);
 	}
 	if (state->timingOutputFile != NULL) {
-			fclose(state->timingOutputFile);
-		}
+		fclose(state->timingOutputFile);
+	}
 
 	// Ensure buffer is freed.
 	flowEventBufferFree(state->buffer);
 }
 
-static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID) {
+static bool allocateBuffers(OpticFlowFilterState state, int16_t sourceID) {
 	// Get size information from source.
 	sshsNode sourceInfoNode = caerMainloopGetSourceInfo(U16T(sourceID));
 	if (sourceInfoNode == NULL) {
@@ -300,6 +400,10 @@ static bool allocateBuffer(OpticFlowFilterState state, int16_t sourceID) {
 
 	state->buffer = flowEventBufferInit((size_t) sizeX, (size_t) sizeY, FLOW_BUFFER_SIZE);
 	if (state->buffer == NULL) {
+		return (false);
+	}
+	state->lastTSMap = simple2DBufferInitLong((size_t) sizeX, (size_t) sizeY);
+	if (state->lastTSMap == NULL) {
 		return (false);
 	}
 
@@ -356,7 +460,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	const struct tm * timeInfo = localtime(&rawTime);
 	char fileName[128];
 	char fileTimestamp[64];
-	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%T", timeInfo);
+	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%H_%M_%S", timeInfo);
 	sprintf(fileName, "%s_%s.aedat", fileBaseName, fileTimestamp);
 
 	// Check if filename exists
@@ -400,7 +504,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 			TIMING_OUTPUT_FILE_NAME, fileTimestamp);
 	if (n > 0)
 		sprintf(fileName, "%s_%s_%d.csv",
-			fileBaseName, fileTimestamp, n);
+				fileBaseName, fileTimestamp, n);
 	state->timingOutputFile = fopen(fileName,"w");
 	if (state->timingOutputFile == NULL) {
 		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
@@ -408,9 +512,9 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 		return (false);
 	}
 	fprintf(state->timingOutputFile, "#Timing data for each event packet\n");
-	fprintf(state->timingOutputFile, "#timestamp [us], delay [us], flowRate [1/s]\n");
+	fprintf(state->timingOutputFile, "#timestamp [us], delay [us], flowRate [1/s], wx [1/s], wy [1/s], D [1/s]\n");
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-				"Writing timing info to %s",fileName);
+			"Writing timing info to %s",fileName);
 
 	return (true);
 }

@@ -60,7 +60,7 @@ bool initFileOutput(flowOutputState state, char* fileBaseName, size_t bufferSize
 	const struct tm * timeInfo = localtime(&rawTime);
 	char fileName[128];
 	char fileTimestamp[64];
-	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%T", timeInfo);
+	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%H_%M_%S", timeInfo);
 	sprintf(fileName, "%s_%s.csv", fileBaseName, fileTimestamp);
 
 	// Check if filename exists
