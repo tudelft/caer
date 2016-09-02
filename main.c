@@ -97,7 +97,7 @@ static bool mainloop_1(void) {
 	caerFrameEventPacket frame = NULL;
 	caerIMU6EventPacket imu = NULL;
 
-	FlowEventPacket flow = NULL;
+	flowEventPacket flow = NULL;
 
 	// Input modules grab data from outside sources (like devices, files, ...)
 	// and put events into an event packet.
@@ -165,12 +165,14 @@ static bool mainloop_1(void) {
 
 	// Computes optic flow from events
 #ifdef ENABLE_OPTICFLOW
+#ifdef ENABLE_VISUALIZER
 	flow = flowEventPacketInitFromPolarity(polarity);
-	caerOpticFlowFilter(20, flow);
+#endif
+	caerOpticFlowFilter(20, polarity, flow);
 	#ifdef ENABLE_VISUALIZER
 		caerVisualizer(63, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
+		flowEventPacketFree(flow);
 	#endif
-	flowEventPacketFree(flow);
 #endif
 
 	//Enable camera pose estimation

@@ -22,6 +22,6 @@
  * A future version of this module also computes
  * ego-motion estimates through ventral flow and divergence.
  */
-void caerOpticFlowFilter(uint16_t moduleID, FlowEventPacket polarity);
+void caerOpticFlowFilter(uint16_t moduleID, caerPolarityEventPacket polarity, flowEventPacket flow);
 
 #endif /* OPTICFLOW_H_ */

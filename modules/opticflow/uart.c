@@ -282,7 +282,7 @@ int uart_open(char *port, unsigned int baud)
    */
   tcsetattr(serial_handle, TCSAFLUSH, &options);
 
-  return 0;
+  return (0);
 }
 void uart_close()
 {
@@ -296,13 +296,13 @@ int uart_tx(int len, unsigned char *data)
   while (len) {
     written = write(serial_handle, data, len);
     if (written < 1) {
-      return -1;
+      return (-1);
     }
     len -= written;
     data += written;
   }
 
-  return 0;
+  return (0);
 }
 int uart_rx(int len, unsigned char *data, int timeout_ms)
 {
@@ -319,15 +319,15 @@ int uart_rx(int len, unsigned char *data, int timeout_ms)
     rread = read(serial_handle, data, len);
 
     if (!rread) {
-      return 0;
+      return (0);
     } else if (rread < 0) {
-      return -1;
+      return (-1);
     }
     len -= rread;
     data += len;
   }
 
-  return l;
+  return (l);
 }
 
 #endif

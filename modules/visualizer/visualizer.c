@@ -784,7 +784,7 @@ bool caerVisualizerRendererPolarityEvents(caerVisualizerState state, caerEventPa
 bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacketHeader flowEventPacketHeader) {
 	UNUSED_ARGUMENT(state);
 
-	FlowEventPacket flow = (FlowEventPacket) flowEventPacketHeader;
+	flowEventPacket flow = (flowEventPacket) flowEventPacketHeader;
 
 	if (caerEventPacketHeaderGetEventValid(flowEventPacketHeader) == 0) {
 		return (false);
@@ -792,7 +792,7 @@ bool caerVisualizerRendererFlowEvents(caerVisualizerState state, caerEventPacket
 
 	// Render valid events.
 	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(flowEventPacketHeader); i++) {
-		FlowEvent e = &(flow->events[i]);
+		flowEvent e = &(flow->events[i]);
 		if (!caerPolarityEventIsValid((caerPolarityEvent) e)) { continue; } // Skip invalid polarity events.
 		if (caerPolarityEventGetPolarity((caerPolarityEvent) e)) {
 			// ON polarity (green).
