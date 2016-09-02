@@ -23,7 +23,7 @@ typedef struct {
  * neighboring events with flow in a similar direction and
  * magnitude.
  */
-void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
+void flowRegularizationFilter(flowEvent e, FlowEventBuffer buffer,
 		FlowRegularizationFilterParams params);
 
 

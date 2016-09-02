@@ -7,8 +7,7 @@ IF (ENABLE_OPTICFLOW)
 
 	SET(CAER_OPTICFLOW_FILES 
 		modules/opticflow/opticflow.c
-		modules/opticflow/flowBenosman2014.c
-		modules/opticflow/flowRegularizationFilter.c
+		modules/opticflow/flowAdaptive.c
 		modules/opticflow/uart.c
 		modules/opticflow/flowOutput.c)
 

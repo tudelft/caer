@@ -9,7 +9,7 @@
 
 #define DEG2RAD M_PI/180
 
-void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
+void flowRegularizationFilter(flowEvent e, FlowEventBuffer buffer,
 		FlowRegularizationFilterParams params) {
 	if (!e->hasFlow) {	// Only apply filter if the event has flow at all
 		return;
@@ -57,7 +57,7 @@ void flowRegularizationFilter(FlowEvent e, FlowEventBuffer buffer,
 				if (xx == x && yy == y) {
 					break;
 				}
-				FlowEvent eB = flowEventBufferRead(buffer,xx,yy,i);
+				flowEvent eB = flowEventBufferRead(buffer,xx,yy,i);
 				if (!eB->hasFlow) {
 					continue;
 				}

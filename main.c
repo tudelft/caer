@@ -142,7 +142,7 @@ static bool mainloop_1(void) {
 	caerEventPacketContainer container_cam = NULL;
 	caerSpikeEventPacket spike = NULL;
 	caerSpecialEventPacket special = NULL;
-	FlowEventPacket flow = NULL;
+	flowEventPacket flow = NULL;
 
 	// Input modules grab data from outside sources (like devices, files, ...)
 	// and put events into an event packet.
@@ -226,11 +226,11 @@ static bool mainloop_1(void) {
 
 	// Computes optic flow from events
 #ifdef ENABLE_OPTICFLOW
-	flow = flowEventPacketInitFromPolarity(polarity);
-	caerOpticFlowFilter(20, flow);
 //#ifdef ENABLE_VISUALIZER
+	//flow = flowEventPacketInitFromPolarity(polarity);
 	//caerVisualizer(63, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
 //#endif
+	caerOpticFlowFilter(20, flow);
 	flowEventPacketFree(flow);
 #endif
 

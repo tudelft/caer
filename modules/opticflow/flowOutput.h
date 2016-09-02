@@ -14,13 +14,19 @@
 #include "ext/ringbuffer/ringbuffer.h"
 #include <stdatomic.h>
 
+/**
+ * Output mode definitions.
+ */
 typedef enum {
-	OF_OUT_NONE,
-	OF_OUT_FILE,
-	OF_OUT_UART,
-	OF_OUT_BOTH
+	OF_OUT_NONE,//!< No flow output
+	OF_OUT_FILE,//!< Output to files
+	OF_OUT_UART,//!< Output to UART connection
+	OF_OUT_BOTH //!< Output to both files and UART
 } outputMode;
 
+/**
+ * Output thread state variables.
+ */
 struct flow_output_state {
 	atomic_bool running;
 	outputMode mode;
@@ -32,12 +38,42 @@ struct flow_output_state {
 
 typedef struct flow_output_state *flowOutputState;
 
+/**
+ * Initialization of UART communication link.
+ * @param state Flow output state.
+ * @param port UART port of this machine.
+ * @param baud Baud rate specification.
+ * @param bufferSize Transfer ring buffer size.
+ * @return true if successful, false if error
+ */
 bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t bufferSize);
+
+/**
+ * Termination of UART communication link, free up state memory.
+ * @param state Flow output state.
+ */
 void closeUartOutput(flowOutputState state);
 
+/**
+ * File logging initialization and header setup.
+ * @param state Flow output state.
+ * @param file Basename of file (is appended with date/time of creation)
+ * @param bufferSize Transfer ring buffer size.
+ * @return
+ */
 bool initFileOutput(flowOutputState state, char* file, size_t bufferSize);
+
+/**
+ * Close file logging and free up state memory.
+ * @param state
+ */
 void closeFileOutput(flowOutputState state);
 
-void addPacketToTransferBuffer(flowOutputState state, FlowEventPacket packet, int32_t flowNumber);
+/**
+ * Add flow event to buffer, included in the flow output state
+ * @param state output state, which contains the event buffer
+ * @param e the new event to be added
+ */
+void addFlowEventToTransferBuffer(flowOutputState state, flowEvent e);
 
 #endif /* MODULES_OPTICFLOW_FLOWOUTPUT_H_ */
