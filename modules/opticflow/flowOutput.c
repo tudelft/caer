@@ -164,17 +164,6 @@ void addFlowEventToTransferBuffer(flowOutputState state, flowEvent e) {
 
 static inline flowEvent getFlowEventFromTransferBuffer(RingBuffer buffer) {
 	flowEvent e = ringBufferGet(buffer);
-	repeat: if (e != NULL) {
-		// Are there others? Only render last one, to avoid getting backed up!
-		flowEvent e2 = ringBufferGet(buffer);
-
-		if (e2 != NULL) {
-			free(e);
-			e = e2;
-			goto repeat;
-		}
-	}
-
 	return (e);
 }
 
