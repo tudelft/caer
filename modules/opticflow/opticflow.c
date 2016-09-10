@@ -19,7 +19,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define FLOW_BUFFER_SIZE 3
 #define RING_BUFFER_SIZE 16384
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1/115.0f
 
@@ -267,10 +266,10 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 	}
 
 	// Print average optic flow, time delay, and flow rate
-	fprintf(stdout, "%c[2K", 27);
-	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. D: %1.3f. delay: %ld ms. rate: %3.3fk",
-			state->wx, state->wy, state->D, delay/1000, state->flowState->flowRate/1e3f);
-	fflush(stdout);
+//	fprintf(stdout, "%c[2K", 27);
+//	fprintf(stdout, "\rwx: %1.3f. wy: %1.3f. D: %1.3f. delay: %ld ms. rate: %3.3fk",
+//			state->wx, state->wy, state->D, delay/1000, state->flowState->flowRate/1e3f);
+//	fflush(stdout);
 }
 
 static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
@@ -463,7 +462,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 			TIMING_OUTPUT_FILE_NAME, fileTimestamp);
 	if (n > 0)
 		sprintf(fileName, "%s_%s_%d.csv",
-				fileBaseName, fileTimestamp, n);
+				TIMING_OUTPUT_FILE_NAME, fileTimestamp, n);
 	state->timingOutputFile = fopen(fileName,"w");
 	if (state->timingOutputFile == NULL) {
 		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,
