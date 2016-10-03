@@ -256,8 +256,9 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		if (caerEventPacketHeaderGetEventNumber(&polarity->packetHeader) - i == 1) {
 			delay = computeTimeDelay(state, e->timestamp);
 			// Log timing info
-			if (state->outputState->mode == OF_OUT_FILE
-					|| state->outputState->mode == OF_OUT_BOTH) {
+			if ((state->outputState->mode == OF_OUT_FILE
+					|| state->outputState->mode == OF_OUT_BOTH)
+					&& state->timingOutputFile != NULL) {
 				fprintf(state->timingOutputFile, "%ld, %ld, %f, %f, %f, %f\n",
 						e->timestamp, delay, state->flowState->flowRate,
 						state->wx, state->wy, state->D);
