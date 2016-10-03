@@ -9,6 +9,7 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <errno.h>
 
 #define SUBSYSTEM_UART "UART"
 #define SUBSYSTEM_FILE "Event logger"
@@ -192,7 +193,9 @@ static inline bool sendFlowEventUart(flowEvent e) {
 			|| uart_tx(sizeof(u),(unsigned char*) &u)
 			|| uart_tx(sizeof(v),(unsigned char*) &v)
 			|| uart_tx(sizeof(eventSeparator), &eventSeparator))  {
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Event info not fully sent.");
+		int errnum = errno;
+		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"TX error: %s",strerror(errnum));
+		exit(EXIT_FAILURE); // Prevent overflow of errors
 		return (false);
 	}
 	return (true);
