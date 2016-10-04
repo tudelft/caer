@@ -9,7 +9,8 @@ IF (ENABLE_OPTICFLOW)
 		modules/opticflow/opticflow.c
 		modules/opticflow/flowAdaptive.c
 		modules/opticflow/uart.c
-		modules/opticflow/flowOutput.c)
+		modules/opticflow/flowOutput.c
+		modules/opticflow/dvs128Calibration.c)
 
 	SET(CAER_C_SRC_FILES ${CAER_C_SRC_FILES} ${CAER_OPTICFLOW_FILES} PARENT_SCOPE)
 ENDIF()
