@@ -17,22 +17,24 @@
 struct flow_adaptive_state {
 	int64_t refractoryPeriod;
 
-	uint8_t  dx;
-	int64_t  dtMax;
-	float 	 vMax;
+	uint8_t dx;
+	int64_t dtMax;
+	float 	vMax;
 	uint32_t rejectIterations;
-	float 	 rejectDistance;
+	float 	rejectDistanceFactor;
+	size_t 	nMin;
 
-	size_t 	 adaptiveNMin;
-	float	 adaptiveNGain;
-	float	 adaptiveRateSetpoint;
-	float	 adaptiveTimeConstant;
+	bool	limitEventRate;
+	float	rateSetpoint;
+	float	rateTimeConstant;
 
-	int8_t*  dxKernel;
-	int8_t*  dyKernel;
-	size_t 	 kernelSize;
-	float	 nSetpoint;
-	float	 flowRate;
+	int8_t* dxKernel;
+	int8_t* dyKernel;
+	size_t 	kernelSize;
+	float	flowRate;
+
+	floatArray undistortionMapX;
+	floatArray undistortionMapY;
 };
 
 typedef struct flow_adaptive_state* flowAdaptiveState;
@@ -73,18 +75,12 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		flowAdaptiveState state);
 
 /**
- * Adaptive part of the algorithm.
- * Flow output rate is controlled through the number of neighbor events necessary
- * for flow computation. With a too high flow rate, only the most supported events
- * are computed. This can limit computation time, but also prevent overflow of the
- * transmission bandwidth in case of UART communication.
- *
  * Flow output rate is estimated online through a discrete IIR low-pass filter.
  *
- * @param state Flow computation state.
+ * @param state Flow computation state, containing rate.
  * @param lastFlowDt Time difference between the newest and the previous flow vector.
  */
-void flowAdaptiveUpdateSetpoint(flowAdaptiveState state, int64_t lastFlowDt);
+void flowAdaptiveUpdateRate(flowAdaptiveState state, int64_t lastFlowDt);
 
 /**
  * The search kernels of the flow computation state represent the neighborhood

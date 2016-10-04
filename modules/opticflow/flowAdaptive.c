@@ -13,6 +13,7 @@
 #include <limits.h>
 #include <math.h>
 #include "flowEvent.h"
+#include "dvs128Calibration.h"
 
 #define MAX_NUMBER_OF_EVENTS 100
 #define FLT_ZERO_EPSILON 1.0E-10f
@@ -25,17 +26,24 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	uint8_t x = flowEventGetX(e);
 	uint8_t y = flowEventGetY(e);
 
-	// Check refractory period
+	// Software based refractory period check
 	int64_t Dt = t - simple2DBufferLongGet(buffer, (size_t) x, (size_t) y);
-
 	if (Dt < state->refractoryPeriod) {
 		return;
 	}
+	simple2DBufferLongSet(buffer, x, y, t);
 
-	// Accumulate event coordinates in matrix
+	// Do not compute flow if the flow event rate is too high
+	if (state->flowRate > state->rateSetpoint) {
+		return;
+	}
+
+	// Accumulate event timestamps where possible
 	size_t n = 1;
 	bool isUsed[state->kernelSize];
-	size_t i;
+	int64_t dts[state->kernelSize];
+	int64_t dtSum = 0;
+	uint32_t i;
 	for (i = 0; i < state->kernelSize; i++) {
 		isUsed[i] = false; // initialization
 		uint8_t xx = (uint8_t) (x + state->dxKernel[i]);
@@ -43,14 +51,30 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		if (xx >= buffer->sizeX || yy >= buffer->sizeY)
 			continue;
 		int64_t dt = t - simple2DBufferLongGet(buffer, (size_t) xx, (size_t)yy);
-		if (dt > state->dtMax)
+		if (dt < 0) // causality
 			continue;
 		isUsed[i] = true;
+		dts[i] = dt;
+		dtSum += dt;
 		n++;
 	}
 
-	if ((float) n < state->nSetpoint) {
-		// insufficient events - return
+	// Compute mean and reject all events with too large timestamp differences
+	int64_t dtMean = dtSum/(int64_t) n;
+	if (dtMean > state->dtMax) {
+		dtMean = state->dtMax;
+	}
+
+	for (i = 0; i < state->kernelSize; i++) {
+		if (isUsed[i]) {
+			if (dts[i] > dtMean) {
+				isUsed[i] = false;
+				n--;
+			}
+		}
+	}
+
+	if ((float) n < state->nMin) { // insufficient events - return
 		return;
 	}
 
@@ -61,17 +85,27 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	float sxt = 0;
 	float syt = 0;
 
+	float xU = dvs128GetUndistortedPixelX(x,y);
+	float yU = dvs128GetUndistortedPixelY(x,y);
+	float dxs[state->kernelSize];
+	float dys[state->kernelSize];
+
 	for (i = 0; i < state->kernelSize; i++) {
 		if (isUsed[i]) {
-			int8_t dx = state->dxKernel[i];
-			int8_t dy = state->dyKernel[i];
-			int64_t dt = -t + simple2DBufferLongGet(buffer,
-					(size_t) (x+dx), (size_t) (y+dy));
-			sx2 += (float) (dx*dx);
-			sy2 += (float) (dy*dy);
-			sxy += (float) (dx*dy);
-			sxt += (float) (dx*dt);
-			syt += (float) (dy*dt);
+			uint8_t xx = (uint8_t) (x + state->dxKernel[i]);
+			uint8_t yy = (uint8_t) (y + state->dyKernel[i]);
+			float xxU = dvs128GetUndistortedPixelX(xx,yy);
+			float yyU = dvs128GetUndistortedPixelY(xx,yy);
+			float dx = xxU - xU;
+			float dy = yyU - yU;
+			dxs[i] = dx;
+			dys[i] = dy;
+			int64_t dt = -dts[i];
+			sx2 += dx * dx;
+			sy2 += dy * dy;
+			sxy += dx * dy;
+			sxt += dx * (float) dt;
+			syt += dy * (float) dt;
 		}
 	}
 
@@ -86,32 +120,33 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 
 	// Iterative outlier rejection
 	for (i = 0; i < state->rejectIterations; i++) {
-		size_t j;
+		uint32_t j;
 		size_t nPrevious = n;
+		float rejectDistance = sqrtf(a*a+b*b)*state->rejectDistanceFactor;
 		for (j = 0; j < state->kernelSize; j++) {
-			if (!isUsed[j]) { // already rejected points are skipped
+			if (!isUsed[j]) { // already rejected points can be skipped
 				continue;
 			}
-			int8_t dx = state->dxKernel[j];
-			int8_t dy = state->dyKernel[j];
-			int64_t dt = -t + simple2DBufferLongGet(buffer,
-					(size_t) (x+dx), (size_t) (y+dy));
+			float dx = dxs[j];
+			float dy = dys[j];
+			int64_t dt = -dts[j];
 
-			if (fabsf(a*dx + b*dy - (float) dt) > state->rejectDistance) {
+			if (fabsf(a*dx + b*dy - (float) dt) > rejectDistance) {
 				// remove outlier from sums
-				sx2 -= (float)(dx*dx);
-				sy2 -= (float)(dy*dy);
-				sxy -= (float)(dx*dy);
-				sxt -= (float)(dx*dt);
-				syt -= (float)(dy*dt);
+				sx2 -= dx * dx;
+				sy2 -= dy * dy;
+				sxy -= dx * dy;
+				sxt -= dx * (float) dt;
+				syt -= dy * (float) dt;
 				isUsed[j] = false;
 				n--;
 			}
 		}
+
 		if (n == nPrevious) // no change
 			break;
 
-		if (n < state->nSetpoint)  // insufficient events
+		if (n < state->nMin)  // insufficient events
 			return;
 
 		// Recompute determinant
@@ -144,26 +179,15 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	e->hasFlow = true;
 }
 
-void flowAdaptiveUpdateSetpoint(flowAdaptiveState state, int64_t lastFlowDt) {
+void flowAdaptiveUpdateRate(flowAdaptiveState state, int64_t lastFlowDt) {
 	float lastDtFloat = ((float) lastFlowDt) / SECONDS_TO_MICROSECONDS;
 	float rateNew = 1.0f / (lastDtFloat+0.00001f);
-	float tFactor = lastDtFloat / state->adaptiveTimeConstant;
+	float tFactor = lastDtFloat / state->rateTimeConstant;
 	if (tFactor > 1) {
 		tFactor = 1;
 	}
 
 	state->flowRate += (rateNew - state->flowRate)*tFactor;
-
-	if (state->flowRate > state->adaptiveRateSetpoint) {
-		state->nSetpoint *= state->adaptiveNGain;
-		if (state->nSetpoint > state->kernelSize)
-			state->nSetpoint = (float) state->kernelSize;
-	}
-	if (state->flowRate < state->adaptiveRateSetpoint) {
-		state->nSetpoint /= state->adaptiveNGain;
-		if (state->nSetpoint < state->adaptiveNMin)
-			state->nSetpoint = (float) state->adaptiveNMin;
-	}
 }
 
 bool flowAdaptiveInitSearchKernels(flowAdaptiveState state) {

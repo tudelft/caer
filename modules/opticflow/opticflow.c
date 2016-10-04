@@ -14,6 +14,7 @@
 #include "flowAdaptive.h"
 #include "flowOutput.h"
 #include "termios.h"
+#include "dvs128Calibration.h"
 
 #include <sys/statfs.h>
 #include <sys/stat.h>
@@ -24,12 +25,12 @@
 
 outputMode outMode = OF_OUT_FILE;
 
-char* UART_PORT = (char*) "/dev/ttySAC2"; // based on Odroid XU4 ports
+const char* UART_PORT = "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B921600;
 
-char* RAW_OUTPUT_FILE_NAME = "logs/rawEventLog";
-char* TIMING_OUTPUT_FILE_NAME = "logs/timingLog";
-char* FLOW_OUTPUT_FILE_NAME = "logs/flowEventLog";
+const char* RAW_OUTPUT_FILE_NAME = "logs/rawEventLog";
+const char* TIMING_OUTPUT_FILE_NAME = "logs/timingLog";
+const char* FLOW_OUTPUT_FILE_NAME = "logs/flowEventLog";
 int64_t RAW_EVENT_BYTES = 8; // approximate raw event storage size in bytes
 int64_t EVENT_STORAGE_MARGIN = 100000000; // 100MB margin for storing events
 int64_t maxNumberOfRawEvents;
@@ -38,7 +39,6 @@ struct OpticFlowFilter_state {
 	flowAdaptiveState flowState;
 	int8_t subSampleBy;
 	float wx, wy, D;
-	float flowRate;
 	struct timespec timeInit;
 	int64_t timeInitEvent;
 	bool timeSet;
@@ -46,7 +46,6 @@ struct OpticFlowFilter_state {
 	FILE* rawOutputFile;
 	FILE* timingOutputFile;
 
-	bool enableAdaptiveFilter;
 	int64_t lastFlowTimestamp;
 	simple2DBufferLong lastTSMapOn;
 	simple2DBufferLong lastTSMapOff;
@@ -60,7 +59,7 @@ static void caerOpticFlowFilterConfig(caerModuleData moduleData);
 static void caerOpticFlowFilterExit(caerModuleData moduleData);
 static bool allocateBuffers(OpticFlowFilterState state, int16_t sourceID);
 static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent);
-static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, char* fileBaseName);
+static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, const char* fileBaseName);
 static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData, flowEvent e);
 
 static struct caer_module_functions caerOpticFlowFilterFunctions = { .moduleInit =
@@ -78,18 +77,16 @@ void caerOpticFlowFilter(uint16_t moduleID, caerPolarityEventPacket polarity, fl
 }
 
 static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
-	sshsNodePutLongIfAbsent(moduleData->moduleNode, "refractoryPeriod", 10000);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode, "refractoryPeriod", 100000);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode,  "flow_dtMax",				5000000);
+	sshsNodePutByteIfAbsent(moduleData->moduleNode,  "flow_dx",   				2);
+	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "flow_vMax", 				1000.0f);
+	sshsNodePutIntIfAbsent(moduleData->moduleNode,   "flow_rejectIterations", 	1);
+	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "flow_rejectDistanceFactor",		0.5f);
+	sshsNodePutIntIfAbsent(moduleData->moduleNode,  "nMin", 5);
 
-	sshsNodePutLongIfAbsent(moduleData->moduleNode,  "flow_dtMax",				200000);
-	sshsNodePutByteIfAbsent(moduleData->moduleNode,  "flow_dx",   				3);
-	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "flow_vMax", 				200.0f);
-	sshsNodePutIntIfAbsent(moduleData->moduleNode,   "flow_rejectIterations", 	2);
-	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "flow_rejectDistance",		5E3f);
-
-	sshsNodePutBoolIfAbsent(moduleData->moduleNode, "adaptive_enable",true);
-	sshsNodePutIntIfAbsent(moduleData->moduleNode,  "adaptive_nMin", 5);
-	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "adaptive_rateSP", 600.0f);
-	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "adaptive_gain", 2.0f);
+	sshsNodePutBoolIfAbsent(moduleData->moduleNode, "adaptive_enable",false);
+	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "adaptive_rateSP", 100000000.0f);
 	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "adaptive_tau", 0.01f);
 
 	sshsNodePutByteIfAbsent(moduleData->moduleNode, "subSampleBy", 0);
@@ -104,16 +101,16 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	state->flowState->dx = (uint8_t) sshsNodeGetByte(moduleData->moduleNode, "flow_dx");
 	state->flowState->rejectIterations = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
 			"flow_rejectIterations");
-	state->flowState->rejectDistance  = sshsNodeGetFloat(moduleData->moduleNode,
-			"flow_rejectDistance");
+	state->flowState->rejectDistanceFactor  = sshsNodeGetFloat(moduleData->moduleNode,
+			"flow_rejectDistanceFactor");
+	state->flowState->nMin = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
+			"nMin");
 
-	state->enableAdaptiveFilter = sshsNodeGetBool(moduleData->moduleNode, "adaptive_enable");
-	state->flowState->adaptiveNMin = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
-			"adaptive_nMin");
-	state->flowState->adaptiveRateSetpoint = sshsNodeGetFloat(moduleData->moduleNode,
+	state->flowState->limitEventRate = sshsNodeGetBool(moduleData->moduleNode, "adaptive_enable");
+
+	state->flowState->rateSetpoint = sshsNodeGetFloat(moduleData->moduleNode,
 			"adaptive_rateSP");
-	state->flowState->adaptiveNGain = sshsNodeGetFloat(moduleData->moduleNode,"adaptive_gain");
-	state->flowState->adaptiveTimeConstant = sshsNodeGetFloat(moduleData->moduleNode,
+	state->flowState->rateTimeConstant = sshsNodeGetFloat(moduleData->moduleNode,
 			"adaptive_tau");
 
 	flowAdaptiveInitSearchKernels(state->flowState);
@@ -123,7 +120,6 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	state->wx = 0;
 	state->wy = 0;
 	state->D = 0;
-	state->flowRate = 0;
 	state->timeSet = false;
 
 	state->lastFlowTimestamp = 0;
@@ -217,25 +213,23 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		// Compute optic flow
 		if (p) {
         	flowAdaptiveComputeFlow(e,state->lastTSMapOn,state->flowState);
-        	simple2DBufferLongSet(state->lastTSMapOn, x, y, e->timestamp);
 		}
 		else {
 			flowAdaptiveComputeFlow(e,state->lastTSMapOff,state->flowState);
-			simple2DBufferLongSet(state->lastTSMapOff, x, y, e->timestamp);
 		}
 
 		int64_t flowDt = e->timestamp - state->lastFlowTimestamp;
-		flowAdaptiveUpdateSetpoint(state->flowState, flowDt);
+		flowAdaptiveUpdateRate(state->flowState, flowDt);
 
 		if (e->hasFlow) {
-			// For now, estimate average ventral flows for debugging purposes
-			float wxNew = e->u*DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW;
-			float wyNew = e->v*DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW;
-			float dx = x - 76.7f;
-			float dy = y - 56.93f;
+			// For now, estimate average ventral flows/divergence for debugging purposes
+			float wxNew = e->u / dvs128Calibration.focalLengthX;
+			float wyNew = e->v / dvs128Calibration.focalLengthY;
+			float dx = x - dvs128Calibration.principalPointX;
+			float dy = y - dvs128Calibration.principalPointY;
 			float DNew = 2*(dx*e->u + dy*e->v)/(dx*dx + dy*dy);
 			float tFactor = ((float) flowDt) / 1E6f
-					/ state->flowState->adaptiveTimeConstant;
+					/ state->flowState->rateTimeConstant;
 			if (tFactor > 0.1f) tFactor = 0.1f;
 			state->wx += (wxNew-state->wx)*tFactor;
 			state->wy += (wyNew-state->wy)*tFactor;
@@ -286,16 +280,15 @@ static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
 	state->flowState->dx = (uint8_t) sshsNodeGetByte(moduleData->moduleNode, "flow_dx");
 	state->flowState->rejectIterations = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
 			"flow_rejectIterations");
-	state->flowState->rejectDistance  = sshsNodeGetFloat(moduleData->moduleNode,
-			"flow_rejectDistance");
+	state->flowState->rejectDistanceFactor  = sshsNodeGetFloat(moduleData->moduleNode,
+			"flow_rejectDistanceFactor");
+	state->flowState->nMin = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
+			"nMin");
 
-	state->enableAdaptiveFilter = sshsNodeGetBool(moduleData->moduleNode, "adaptive_enable");
-	state->flowState->adaptiveNMin = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
-			"adaptive_nMin");
-	state->flowState->adaptiveRateSetpoint = sshsNodeGetFloat(moduleData->moduleNode,
+	state->flowState->limitEventRate = sshsNodeGetBool(moduleData->moduleNode, "adaptive_enable");
+	state->flowState->rateSetpoint = sshsNodeGetFloat(moduleData->moduleNode,
 			"adaptive_rateSP");
-	state->flowState->adaptiveNGain = sshsNodeGetFloat(moduleData->moduleNode,"adaptive_gain");
-	state->flowState->adaptiveTimeConstant = sshsNodeGetFloat(moduleData->moduleNode,
+	state->flowState->rateTimeConstant = sshsNodeGetFloat(moduleData->moduleNode,
 			"adaptive_tau");
 
 	state->subSampleBy = sshsNodeGetByte(moduleData->moduleNode, "subSampleBy");
@@ -391,7 +384,7 @@ static int64_t computeTimeDelay(OpticFlowFilterState state, int64_t timeEvent) {
 }
 
 static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
-		char* fileBaseName) {
+		const char* fileBaseName) {
 	// In this (git) branch we also log the raw event input in an AEDAT3.1 file
 	// Since storage space on the Odroid is limited, we check how much is available
 	// and limit the log file size to this.
@@ -444,7 +437,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	fprintf(state->rawOutputFile,"#Format: RAW\r\n");
 	char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(1),
 			"sourceString");
-	fprintf(state->rawOutputFile,sourceString);
+	fprintf(state->rawOutputFile,"%s",sourceString);
 	free(sourceString);
 
 	size_t currentTimeStringLength = 45;
@@ -452,7 +445,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	strftime(currentTimeString, currentTimeStringLength,
 			"#Start-Time: %Y-%m-%d %H:%M:%S (TZ%z)\n", timeInfo);
 
-	fprintf(state->rawOutputFile, currentTimeString);
+	fprintf(state->rawOutputFile,"%s", currentTimeString);
 	fprintf(state->rawOutputFile, "#!END-HEADER\n");
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
 			"Writing a maximum of %lld raw events to %s",
