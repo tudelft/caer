@@ -46,7 +46,7 @@ typedef struct flow_output_state *flowOutputState;
  * @param bufferSize Transfer ring buffer size.
  * @return true if successful, false if error
  */
-bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t bufferSize);
+bool initUartOutput(flowOutputState state, const char* port, unsigned int baud, size_t bufferSize);
 
 /**
  * Termination of UART communication link, free up state memory.
@@ -61,7 +61,7 @@ void closeUartOutput(flowOutputState state);
  * @param bufferSize Transfer ring buffer size.
  * @return
  */
-bool initFileOutput(flowOutputState state, char* file, size_t bufferSize);
+bool initFileOutput(flowOutputState state, const char* file, size_t bufferSize);
 
 /**
  * Close file logging and free up state memory.

@@ -51,6 +51,16 @@ struct flow_event_packet {
 */
 typedef struct flow_event_packet *flowEventPacket;
 
+/**
+ * Map of pixel coordinates to undistorted pixel coordinates (FLOATS instead of uint8_t)
+ */
+struct float_array {
+	float **array;
+	size_t sizeX;
+	size_t sizeY;
+};
+
+typedef struct float_array *floatArray;
 
 /**
  *  Flow event initialization. By default, a flow event is not assigned
@@ -218,7 +228,7 @@ static inline void flowEventPacketFree(flowEventPacket flow) {
 }
 
 /**
- * Interfaces to cAER's simple2DBufferInt type
+ * Set interface to cAER's simple2DBufferLong type
  */
 static inline bool simple2DBufferLongSet(simple2DBufferLong buffer, size_t x, size_t y, int64_t value) {
 	if (x >= buffer->sizeX || y >= buffer->sizeY)
@@ -227,11 +237,13 @@ static inline bool simple2DBufferLongSet(simple2DBufferLong buffer, size_t x, si
 	return (true);
 }
 
+/**
+ * Get interface to cAER's simple2DBufferLong type
+ */
 static inline int64_t simple2DBufferLongGet(simple2DBufferLong buffer, size_t x, size_t y) {
 	if (x >= buffer->sizeX || y >= buffer->sizeY)
 		return (0);
 	return (buffer->buffer2d[x][y]);
 }
-
 
 #endif

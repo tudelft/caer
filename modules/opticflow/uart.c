@@ -234,7 +234,7 @@ int serial_handle;
 
 void uart_list_devices() {}
 
-int uart_open(char *port, unsigned int baud)
+int uart_open(const char *port, unsigned int baud)
 {
   struct termios options;
   int i;

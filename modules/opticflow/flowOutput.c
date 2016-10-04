@@ -21,7 +21,7 @@ static int outputHandlerThread(void *stateArg);
 static inline bool writeFlowEventToFile(flowOutputState state,
 		flowEvent e);
 
-bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t bufferSize) {
+bool initUartOutput(flowOutputState state, const char* port, unsigned int baud, size_t bufferSize) {
 	// Initialize UART communication
 	int uartErrno = uart_open(port, baud);
 	if (uartErrno) {
@@ -30,7 +30,7 @@ bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t
 		return (false);
 	}
 	// Test message
-	char* testMessage = "DVS128UART";
+	char* testMessage = (char*)"DVS128UART";
 	if (uart_tx((int) strlen(testMessage), (unsigned char*) testMessage)) {
 		caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART,
 				"Test transmission unsuccessful - connection closed.");
@@ -54,7 +54,7 @@ bool initUartOutput(flowOutputState state, char* port, unsigned int baud, size_t
 	return (true);
 }
 
-bool initFileOutput(flowOutputState state, char* fileBaseName, size_t bufferSize) {
+bool initFileOutput(flowOutputState state, const char* fileBaseName, size_t bufferSize) {
 	// Get timestamp info
 	time_t rawTime;
 	time (&rawTime);
