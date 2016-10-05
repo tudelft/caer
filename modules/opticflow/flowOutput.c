@@ -180,11 +180,11 @@ static inline bool sendFlowEventUart(flowEvent e) {
 	// never occur as pixel location
 	unsigned char eventSeparator = 255;
 
-	uint8_t x = (uint8_t) caerPolarityEventGetX((caerPolarityEvent) e);
-	uint8_t y = (uint8_t) caerPolarityEventGetY((caerPolarityEvent) e);
+	int16_t x = (int16_t) (e->xu*10);
+	int16_t y = (int16_t) (e->yu*10);
 	int32_t t = caerPolarityEventGetTimestamp((caerPolarityEvent) e);
-	int16_t u = (int16_t) (e->u*100);
-	int16_t v = (int16_t) (e->v*100);
+	int16_t u = (int16_t) (e->u*10);
+	int16_t v = (int16_t) (e->v*10);
 
 	// Send data over UART
 	if (uart_tx(sizeof(x),(unsigned char*) &x)

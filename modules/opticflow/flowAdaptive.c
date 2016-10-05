@@ -176,6 +176,8 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	// Assign flow to event in pixels per second (instead of pix/us)
 	e->u = u;
 	e->v = v;
+	e->xu = xU;
+	e->yu = yU;
 	e->hasFlow = true;
 }
 
