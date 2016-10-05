@@ -19,12 +19,14 @@
  *
  * It is augmented with three variables:
  * - u,v, which indicate horizontal/vertical optical flow speed
+ * - xu,yu, the undistorted pixel coordinates
  * - hasFlow, a flag indicating that flow has been assigned to this event.
  */
 struct flow_event {
 	uint32_t data;
 	int64_t timestamp;
 	float u,v;
+	float xu,yu;
 	bool hasFlow;
 }__attribute__((__packed__));
 
@@ -72,6 +74,8 @@ static inline struct flow_event flowEventInit(uint32_t data, int64_t timestamp) 
 	e.timestamp = timestamp;
 	e.u = 0;
 	e.v = 0;
+	e.xu = 0;
+	e.yu = 0;
 	e.hasFlow = false;
 	return (e);
 }
@@ -98,6 +102,8 @@ static inline struct flow_event flowEventInitXYTP(uint16_t x, uint16_t y, int64_
 	e.timestamp = t;
 	e.u = 0;
 	e.v = 0;
+	e.xu = 0;
+	e.yu = 0;
 	e.hasFlow = false;
 	return (e);
 }
