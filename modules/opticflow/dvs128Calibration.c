@@ -10,7 +10,7 @@
 
 float dvs128GetUndistortedPixelX(uint8_t x, uint8_t y) {
 	if (x < DVS128_N_PIXELS_X && y < DVS128_N_PIXELS_Y) {
-		return (dvs128Calibration.undistortionMapX[x][y]);
+		return (dvs128Calibration.undistortionMapX[x][DVS128_N_PIXELS_Y - 1 - y]);
 	}
 	caerLog(CAER_LOG_ERROR,"Lens correction","Pixel indices (%d,%d) out of bounds",x,y);
 	return (0.0f);
@@ -18,7 +18,7 @@ float dvs128GetUndistortedPixelX(uint8_t x, uint8_t y) {
 
 float dvs128GetUndistortedPixelY(uint8_t x, uint8_t y) {
 	if (x < DVS128_N_PIXELS_X && y < DVS128_N_PIXELS_Y) {
-		return (dvs128Calibration.undistortionMapY[x][y]);
+		return (dvs128Calibration.undistortionMapY[x][DVS128_N_PIXELS_Y - 1 - y]);
 	}
 	caerLog(CAER_LOG_ERROR,"Lens correction","Pixel indices (%d,%d) out of bounds",x,y);
 	return (0.0f);

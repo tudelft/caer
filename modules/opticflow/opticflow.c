@@ -112,6 +112,8 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 			"adaptive_rateSP");
 	state->flowState->rateTimeConstant = sshsNodeGetFloat(moduleData->moduleNode,
 			"adaptive_tau");
+	state->flowState->lastEventT = 0;
+	state->flowState->flowRate = 0;
 
 	flowAdaptiveInitSearchKernels(state->flowState);
 
@@ -219,7 +221,6 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		}
 
 		int64_t flowDt = e->timestamp - state->lastFlowTimestamp;
-		flowAdaptiveUpdateRate(state->flowState, flowDt);
 
 		if (e->hasFlow) {
 			// For now, estimate average ventral flows/divergence for debugging purposes

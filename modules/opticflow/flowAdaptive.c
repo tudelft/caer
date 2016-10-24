@@ -34,8 +34,14 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	simple2DBufferLongSet(buffer, x, y, t);
 
 	// Do not compute flow if the flow event rate is too high
-	if (state->flowRate > state->rateSetpoint) {
-		return;
+	if (state->limitEventRate) {
+		if (t - state->lastEventT < 1) {
+			return;
+		}
+		float flowRate = 1e6f/((float) (t - state->lastEventT));
+		if (flowRate > state->rateSetpoint) {
+			return;
+		}
 	}
 
 	// Accumulate event timestamps where possible
@@ -179,6 +185,11 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	e->xu = xU;
 	e->yu = yU;
 	e->hasFlow = true;
+	int64_t lastFlowDt = t - state->lastEventT;
+	if (lastFlowDt > 0) {
+		flowAdaptiveUpdateRate(state,lastFlowDt);
+	}
+	state->lastEventT = t;
 }
 
 void flowAdaptiveUpdateRate(flowAdaptiveState state, int64_t lastFlowDt) {

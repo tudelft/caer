@@ -31,7 +31,9 @@ struct flow_adaptive_state {
 	int8_t* dxKernel;
 	int8_t* dyKernel;
 	size_t 	kernelSize;
+
 	float	flowRate;
+	int64_t lastEventT;
 
 	floatArray undistortionMapX;
 	floatArray undistortionMapY;
