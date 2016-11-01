@@ -18,7 +18,12 @@
 #define MAX_NUMBER_OF_EVENTS 100
 #define FLT_ZERO_EPSILON 1.0E-10f
 #define SECONDS_TO_MICROSECONDS 1e6f
+#define N_POINTS_MINIMUM_FIT 3
 
+struct point3d {
+	uint8_t xx,yy;
+	int64_t dt;
+};
 
 void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		flowAdaptiveState state) {
@@ -44,131 +49,159 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		}
 	}
 
-	// Accumulate event timestamps where possible
+	// Reject points at edges, since they give rise to erroneous flow
+	if (x < 1 || x > buffer->sizeX -2
+			|| y < 1 || y > buffer->sizeY -2) {
+		return;
+	}
+
 	size_t n = 1;
-	bool isUsed[state->kernelSize];
-	int64_t dts[state->kernelSize];
-	int64_t dtSum = 0;
-	uint32_t i;
+	struct point3d points[state->kernelSize];
+	int32_t i;
+
+	// BASED ON 3/10th of events
+	// Accumulate event timestamps where possible
 	for (i = 0; i < state->kernelSize; i++) {
-		isUsed[i] = false; // initialization
-		uint8_t xx = (uint8_t) (x + state->dxKernel[i]);
-		uint8_t yy = (uint8_t) (y + state->dyKernel[i]);
+		uint8_t xx = x + state->dxKernel[i];
+		uint8_t yy = y + state->dyKernel[i];
 		if (xx >= buffer->sizeX || yy >= buffer->sizeY)
 			continue;
 		int64_t dt = t - simple2DBufferLongGet(buffer, (size_t) xx, (size_t)yy);
-		if (dt < 0) // causality
+		if (dt < 0 || dt > state->dtMax)
 			continue;
-		isUsed[i] = true;
-		dts[i] = dt;
-		dtSum += dt;
+		// Sort by timestamp, ascending
+		if (n==1) {
+			points[0].xx = xx;
+			points[0].yy = yy;
+			points[0].dt = dt;
+		}
+		else {
+			int32_t j,k;
+			bool c = false;
+			for (j=0; j < n-1; j++) {
+				if (dt < points[j].dt) {
+					for (k = n-2; k >= j; k--) {
+						points[k+1] = points[k];
+					}
+					points[j].xx = xx;
+					points[j].yy = yy;
+					points[j].dt = dt;
+					c = true;
+					break;
+				}
+			}
+			if (!c) { // append to end
+				points[n-1].xx = xx;
+				points[n-1].yy = yy;
+				points[n-1].dt = dt;
+			}
+		}
 		n++;
 	}
 
-	// Compute mean and reject all events with too large timestamp differences
-	int64_t dtMean = dtSum/(int64_t) n;
-	if (dtMean > state->dtMax) {
-		dtMean = state->dtMax;
-	}
-
-	for (i = 0; i < state->kernelSize; i++) {
-		if (isUsed[i]) {
-			if (dts[i] > dtMean) {
-				isUsed[i] = false;
-				n--;
-			}
-		}
-	}
-
-	if ((float) n < state->nMin) { // insufficient events - return
+	if ((float) n < state->NP) { // insufficient events - return
 		return;
 	}
+	// Cap events to N most recent ones
+	n = state->NP;
 
 	// Now compute flow statistics
 	float sx2 = 0;
 	float sy2 = 0;
+	float st2 = 0;
 	float sxy = 0;
 	float sxt = 0;
 	float syt = 0;
+	float st = 0;
 
 	float xU = dvs128GetUndistortedPixelX(x,y);
 	float yU = dvs128GetUndistortedPixelY(x,y);
-	float dxs[state->kernelSize];
-	float dys[state->kernelSize];
 
-	for (i = 0; i < state->kernelSize; i++) {
-		if (isUsed[i]) {
-			uint8_t xx = (uint8_t) (x + state->dxKernel[i]);
-			uint8_t yy = (uint8_t) (y + state->dyKernel[i]);
-			float xxU = dvs128GetUndistortedPixelX(xx,yy);
-			float yyU = dvs128GetUndistortedPixelY(xx,yy);
-			float dx = xxU - xU;
-			float dy = yyU - yU;
-			dxs[i] = dx;
-			dys[i] = dy;
-			int64_t dt = -dts[i];
-			sx2 += dx * dx;
-			sy2 += dy * dy;
-			sxy += dx * dy;
-			sxt += dx * (float) dt;
-			syt += dy * (float) dt;
-		}
+	float dxus[state->kernelSize];
+	float dyus[state->kernelSize];
+
+	for (i = 0; i < n-1; i++) {
+		uint8_t xx = points[i].xx;
+		uint8_t yy = points[i].yy;
+		float xxU = dvs128GetUndistortedPixelX(xx,yy);
+		float yyU = dvs128GetUndistortedPixelY(xx,yy);
+		float dx = xxU - xU;
+		float dy = yyU - yU;
+		dxus[i] = dx;
+		dyus[i] = dy;
+		float dt = -(float) points[i].dt/SECONDS_TO_MICROSECONDS;
+		sx2 += dx*dx;
+		sy2 += dy*dy;
+		st2 += dt*dt;
+		sxy += dx*dy;
+		sxt += dx*dt;
+		syt += dy*dt;
+		st  += dt;
 	}
 
 	// Compute determinant and check invertibility
 	float D = - sxy*sxy + sx2*sy2;
-	if (fabsf(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
+	if (fabs(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
 		return;
 	}
 	// Compute plane parameters
 	float a = 1/D*(sy2*sxt - sxy*syt);
 	float b = 1/D*(sx2*syt - sxy*sxt);
 
-	// Iterative outlier rejection
-	for (i = 0; i < state->rejectIterations; i++) {
-		uint32_t j;
-		size_t nPrevious = n;
-		float rejectDistance = sqrtf(a*a+b*b)*state->rejectDistanceFactor;
-		for (j = 0; j < state->kernelSize; j++) {
-			if (!isUsed[j]) { // already rejected points can be skipped
-				continue;
-			}
-			float dx = dxs[j];
-			float dy = dys[j];
-			int64_t dt = -dts[j];
+	// Compute R2
+	float SSR = st2-a*sxt-b*syt;
+	float SST = st2-n*pow(st/n,2);
+	float R2 = 1-SSR/SST;
 
-			if (fabsf(a*dx + b*dy - (float) dt) > rejectDistance) {
-				// remove outlier from sums
-				sx2 -= dx * dx;
-				sy2 -= dy * dy;
-				sxy -= dx * dy;
-				sxt -= dx * (float) dt;
-				syt -= dy * (float) dt;
-				isUsed[j] = false;
-				n--;
+	// If necessary, reject nReject newest points
+	if (R2 < state->minR2) {
+		bool reject = true;
+		size_t nReject;
+		for (nReject = 0; nReject < state->nReject; nReject++) {
+			size_t i = n - 2;
+			if (i < N_POINTS_MINIMUM_FIT) { // fit is no longer possible
+				return;
+			}
+			float dx = dxus[i];
+			float dy = dyus[i];
+			float dt = -(float) points[i].dt/SECONDS_TO_MICROSECONDS;
+			sx2 -= dx*dx;
+			sy2 -= dy*dy;
+			st2 -= dt*dt;
+			sxy -= dx*dy;
+			sxt -= dx*dt;
+			syt -= dy*dt;
+			st  -= dt;
+			n--;
+
+			// Compute determinant and check invertibility
+			D = - sxy*sxy + sx2*sy2;
+			if (fabs(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
+				return;
+			}
+			// Compute plane parameters
+			a = 1/D*(sy2*sxt - sxy*syt);
+			b = 1/D*(sx2*syt - sxy*sxt);
+
+			// Compute R2
+			SSR = st2-a*sxt-b*syt;
+			SST = st2-n*pow(st/n,2);
+			R2 = 1-SSR/SST;
+			if (R2 >= state->minR2) {
+				reject = false;
+				break;
 			}
 		}
-
-		if (n == nPrevious) // no change
-			break;
-
-		if (n < state->nMin)  // insufficient events
-			return;
-
-		// Recompute determinant
-		D = - sxy*sxy + sx2*sy2;
-		if (fabsf(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
+		// no improvement seen, return
+		if (reject) {
 			return;
 		}
-		// Update plane parameters
-		a = 1/D*(sy2*sxt - sxy*syt);
-		b = 1/D*(sx2*syt - sxy*sxt);
 	}
 
 	// Compute velocity
 	float scaleFactor = 1.0f/(a*a + b*b);
-	float u = scaleFactor*a*SECONDS_TO_MICROSECONDS;
-	float v = scaleFactor*b*SECONDS_TO_MICROSECONDS;
+	float u = scaleFactor*a;
+	float v = scaleFactor*b;
 	// Check for NaN value
 	if (isnan(u) || isnan(v)) {
 		return;
@@ -206,6 +239,8 @@ void flowAdaptiveUpdateRate(flowAdaptiveState state, int64_t lastFlowDt) {
 bool flowAdaptiveInitSearchKernels(flowAdaptiveState state) {
 	size_t window = (size_t) state->dx * 2 + 1;
 	state->kernelSize = window*window - 1;
+	state->NP = (size_t) ceilf(state->nFraction * state->kernelSize);
+
 	state->dxKernel = malloc(state->kernelSize * sizeof(int8_t));
 	state->dyKernel = malloc(state->kernelSize * sizeof(int8_t));
 
