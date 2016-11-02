@@ -55,15 +55,15 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		return;
 	}
 
-	size_t n = 1;
+	uint32_t n = 1;
 	struct point3d points[state->kernelSize];
-	int32_t i;
+	uint32_t i;
 
 	// BASED ON 3/10th of events
 	// Accumulate event timestamps where possible
 	for (i = 0; i < state->kernelSize; i++) {
-		uint8_t xx = x + state->dxKernel[i];
-		uint8_t yy = y + state->dyKernel[i];
+		uint8_t xx = (uint8_t) (x + state->dxKernel[i]);
+		uint8_t yy = (uint8_t) (y + state->dyKernel[i]);
 		if (xx >= buffer->sizeX || yy >= buffer->sizeY)
 			continue;
 		int64_t dt = t - simple2DBufferLongGet(buffer, (size_t) xx, (size_t)yy);
@@ -78,9 +78,9 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		else {
 			int32_t j,k;
 			bool c = false;
-			for (j=0; j < n-1; j++) {
+			for (j=0; j < (int32_t)n-1; j++) {
 				if (dt < points[j].dt) {
-					for (k = n-2; k >= j; k--) {
+					for (k = (int32_t)n-2; k >= j; k--) {
 						points[k+1] = points[k];
 					}
 					points[j].xx = xx;
@@ -103,7 +103,7 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		return;
 	}
 	// Cap events to N most recent ones
-	n = state->NP;
+	n = (uint32_t) state->NP;
 
 	// Now compute flow statistics
 	float sx2 = 0;
@@ -141,7 +141,7 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 
 	// Compute determinant and check invertibility
 	float D = - sxy*sxy + sx2*sy2;
-	if (fabs(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
+	if (fabsf(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
 		return;
 	}
 	// Compute plane parameters
@@ -149,8 +149,8 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	float b = 1/D*(sx2*syt - sxy*sxt);
 
 	// Compute R2
-	float SSR = st2-a*sxt-b*syt;
-	float SST = st2-n*pow(st/n,2);
+	float SSR = st2 - a*sxt - b*syt;
+	float SST = st2 - (float) n *powf(st/((float) n),2);
 	float R2 = 1-SSR/SST;
 
 	// If necessary, reject nReject newest points
@@ -158,7 +158,7 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		bool reject = true;
 		size_t nReject;
 		for (nReject = 0; nReject < state->nReject; nReject++) {
-			size_t i = n - 2;
+			i = n - 2;
 			if (i < N_POINTS_MINIMUM_FIT) { // fit is no longer possible
 				return;
 			}
@@ -176,7 +176,7 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 
 			// Compute determinant and check invertibility
 			D = - sxy*sxy + sx2*sy2;
-			if (fabs(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
+			if (fabsf(D) < FLT_ZERO_EPSILON) { // determinant too small: singular system
 				return;
 			}
 			// Compute plane parameters
@@ -184,8 +184,8 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 			b = 1/D*(sx2*syt - sxy*sxt);
 
 			// Compute R2
-			SSR = st2-a*sxt-b*syt;
-			SST = st2-n*pow(st/n,2);
+			SSR = st2 - a*sxt - b*syt;
+			SST = st2 - (float) n*powf(st/((float) n),2);
 			R2 = 1-SSR/SST;
 			if (R2 >= state->minR2) {
 				reject = false;
@@ -239,7 +239,8 @@ void flowAdaptiveUpdateRate(flowAdaptiveState state, int64_t lastFlowDt) {
 bool flowAdaptiveInitSearchKernels(flowAdaptiveState state) {
 	size_t window = (size_t) state->dx * 2 + 1;
 	state->kernelSize = window*window - 1;
-	state->NP = (size_t) ceilf(state->nFraction * state->kernelSize);
+	float NP = ceilf(state->nFraction * (float) state->kernelSize);
+	state->NP = (size_t) NP;
 
 	state->dxKernel = malloc(state->kernelSize * sizeof(int8_t));
 	state->dyKernel = malloc(state->kernelSize * sizeof(int8_t));
