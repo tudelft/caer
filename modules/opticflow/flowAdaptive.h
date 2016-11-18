@@ -21,7 +21,9 @@ struct flow_adaptive_state {
 	int64_t dtMax;
 	float 	vMax;
 	uint32_t nReject;
-	float 	minR2;
+	uint32_t nMin;
+	float 	maxNRMSE;
+	float   dtStopFactor;
 
 	bool	limitEventRate;
 	float	rateSetpoint;
@@ -30,8 +32,6 @@ struct flow_adaptive_state {
 	int8_t* dxKernel;
 	int8_t* dyKernel;
 	size_t 	kernelSize;
-	size_t  NP;
-	float   nFraction;
 	float	flowRate;
 	int64_t lastEventT;
 
