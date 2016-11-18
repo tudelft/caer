@@ -77,16 +77,17 @@ void caerOpticFlowFilter(uint16_t moduleID, caerPolarityEventPacket polarity, fl
 }
 
 static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
-	sshsNodePutLongIfAbsent(moduleData->moduleNode, "refractoryPeriod", 100000);
-	sshsNodePutLongIfAbsent(moduleData->moduleNode,  "flow_dtMax",		5000000);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode,  "refractoryPeriod", 100000);
+	sshsNodePutLongIfAbsent(moduleData->moduleNode,  "flow_dtMax",		2000000);
 	sshsNodePutByteIfAbsent(moduleData->moduleNode,  "flow_dx",   		2);
 	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "flow_vMax", 		1000.0f);
 	sshsNodePutIntIfAbsent(moduleData->moduleNode,   "flow_rejectIterations", 	2);
-	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "flow_minR2",0.8f);
-	sshsNodePutFloatIfAbsent(moduleData->moduleNode,  "nFraction",0.3f);
+	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "flow_maxNRMSE",0.3f);
+	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "flow_dtStopFactor",3.0f);
+	sshsNodePutIntIfAbsent(moduleData->moduleNode,   "flow_nMin",8);
 
 	sshsNodePutBoolIfAbsent(moduleData->moduleNode, "adaptive_enable",false);
-	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "adaptive_rateSP", 3000.0f);
+	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "adaptive_rateSP", 2500.0f);
 	sshsNodePutFloatIfAbsent(moduleData->moduleNode, "adaptive_tau", 0.01f);
 
 	sshsNodePutByteIfAbsent(moduleData->moduleNode, "subSampleBy", 0);
@@ -101,10 +102,12 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	state->flowState->dx = (uint8_t) sshsNodeGetByte(moduleData->moduleNode, "flow_dx");
 	state->flowState->nReject = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
 			"flow_rejectIterations");
-	state->flowState->minR2  = sshsNodeGetFloat(moduleData->moduleNode,
-			"flow_minR2");
-	state->flowState->nFraction  = sshsNodeGetFloat(moduleData->moduleNode,
-				"nFraction");
+	state->flowState->maxNRMSE  = sshsNodeGetFloat(moduleData->moduleNode,
+			"flow_maxNRMSE");
+	state->flowState->dtStopFactor  = sshsNodeGetFloat(moduleData->moduleNode,
+			"flow_dtStopFactor");
+	state->flowState->nMin = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
+			"flow_nMin");
 
 	state->flowState->limitEventRate = sshsNodeGetBool(moduleData->moduleNode, "adaptive_enable");
 
@@ -281,10 +284,12 @@ static void caerOpticFlowFilterConfig(caerModuleData moduleData) {
 	state->flowState->dx = (uint8_t) sshsNodeGetByte(moduleData->moduleNode, "flow_dx");
 	state->flowState->nReject = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
 			"flow_rejectIterations");
-	state->flowState->minR2  = sshsNodeGetFloat(moduleData->moduleNode,
-			"flow_minR2");
-	state->flowState->nFraction  = sshsNodeGetFloat(moduleData->moduleNode,
-					"nFraction");
+	state->flowState->maxNRMSE  = sshsNodeGetFloat(moduleData->moduleNode,
+			"flow_maxNRMSE");
+	state->flowState->dtStopFactor  = sshsNodeGetFloat(moduleData->moduleNode,
+			"flow_dtStopFactor");
+	state->flowState->nMin = (uint32_t) sshsNodeGetInt(moduleData->moduleNode,
+			"flow_nMin");
 
 	state->flowState->limitEventRate = sshsNodeGetBool(moduleData->moduleNode, "adaptive_enable");
 	state->flowState->rateSetpoint = sshsNodeGetFloat(moduleData->moduleNode,

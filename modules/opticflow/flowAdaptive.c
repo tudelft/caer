@@ -23,6 +23,7 @@
 struct point3d {
 	uint8_t xx,yy;
 	int64_t dt;
+	bool isUsed;
 };
 
 void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
@@ -99,11 +100,36 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 		n++;
 	}
 
-	if ((float) n < state->NP) { // insufficient events - return
+	if ((float) n < state->nMin) { // insufficient events - return
 		return;
 	}
-	// Cap events to N most recent ones
-	n = (uint32_t) state->NP;
+
+	// Determine where to cut off event selection
+	int8_t dx1 = (int8_t)(points[0].xx - x);
+	int8_t dy1 = (int8_t)(points[0].yy - y);
+	int64_t dtMax;
+	bool nn = false;
+	for (i=1; i < n-1; i++) {
+		if (!nn) {
+			// Set dtMax at first linearly independent pair of points
+			int8_t dx2 = (int8_t) (points[i].xx - x);
+			int8_t dy2 = (int8_t) (points[i].yy - y);
+			if (dx2 * dy1 - dy2 * dx1 != 0) {
+				dtMax = (int64_t) ((float) points[i].dt * state->dtStopFactor);
+				nn = true;
+			}
+		}
+		else {
+			if (points[i].dt - points[i-1].dt > dtMax) {
+				n = i+1;
+				break;
+			}
+		}
+	}
+
+	if ((float) n < state->nMin) { // insufficient events - return
+		return;
+	}
 
 	// Now compute flow statistics
 	float sx2 = 0;
@@ -150,21 +176,35 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 
 	// Compute R2
 	float SSR = st2 - a*sxt - b*syt;
-	float SST = st2 - (float) n *powf(st/((float) n),2);
-	float R2 = 1-SSR/SST;
+	float NMSE = SSR * (float) n / (st*st + 1e-12f); // avoid using square root
 
-	// If necessary, reject nReject newest points
-	if (R2 < state->minR2) {
+	// If necessary, reject nReject outliers
+	if (NMSE > state->maxNRMSE*state->maxNRMSE) {
 		bool reject = true;
 		size_t nReject;
+		uint32_t nInit = n;
+		for (i = 0; i < n-1; i++) {
+			points[i].isUsed = true;
+		}
 		for (nReject = 0; nReject < state->nReject; nReject++) {
-			i = n - 2;
-			if (i < N_POINTS_MINIMUM_FIT) { // fit is no longer possible
-				return;
+
+			// find point with max distance
+			float dMax = 0; uint32_t iS = 0;
+			for (i = 0; i < nInit-1; i++) {
+				if (points[i].isUsed) {
+					float dxx = dxus[i];
+					float dyy = dyus[i];
+					float dtt = (float) points[i].dt/SECONDS_TO_MICROSECONDS;
+					float dist = fabsf(a*dxx+b*dyy+dtt);
+					if (dist > dMax) {
+						iS = i;
+						dMax = dist;
+					}
+				}
 			}
-			float dx = dxus[i];
-			float dy = dyus[i];
-			float dt = -(float) points[i].dt/SECONDS_TO_MICROSECONDS;
+			float dx = dxus[iS];
+			float dy = dyus[iS];
+			float dt = -(float) points[iS].dt/SECONDS_TO_MICROSECONDS;
 			sx2 -= dx*dx;
 			sy2 -= dy*dy;
 			st2 -= dt*dt;
@@ -172,6 +212,7 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 			sxt -= dx*dt;
 			syt -= dy*dt;
 			st  -= dt;
+			points[iS].isUsed = false;
 			n--;
 
 			// Compute determinant and check invertibility
@@ -184,15 +225,14 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 			b = 1/D*(sx2*syt - sxy*sxt);
 
 			// Compute R2
-			SSR = st2 - a*sxt - b*syt;
-			SST = st2 - (float) n*powf(st/((float) n),2);
-			R2 = 1-SSR/SST;
-			if (R2 >= state->minR2) {
-				reject = false;
-				break;
-			}
+			SSR = st2-a*sxt-b*syt;
+			NMSE = SSR * (float)n / (st*st + 1e-12f); // avoid using square root
+			if (NMSE <= state->maxNRMSE * state->maxNRMSE) {
+		    	reject = false;
+		    	break;
+		    }
 		}
-		// no improvement seen, return
+		// no improvement seen: return
 		if (reject) {
 			return;
 		}
@@ -239,9 +279,6 @@ void flowAdaptiveUpdateRate(flowAdaptiveState state, int64_t lastFlowDt) {
 bool flowAdaptiveInitSearchKernels(flowAdaptiveState state) {
 	size_t window = (size_t) state->dx * 2 + 1;
 	state->kernelSize = window*window - 1;
-	float NP = ceilf(state->nFraction * (float) state->kernelSize);
-	state->NP = (size_t) NP;
-
 	state->dxKernel = malloc(state->kernelSize * sizeof(int8_t));
 	state->dyKernel = malloc(state->kernelSize * sizeof(int8_t));
 
