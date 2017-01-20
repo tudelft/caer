@@ -23,14 +23,17 @@
 #define RING_BUFFER_SIZE 16384
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1/115.0f
 
-outputMode outMode = OF_OUT_FILE;
+outputMode outMode = OF_OUT_BOTH;
 
 const char* UART_PORT = "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B921600;
 
-const char* RAW_OUTPUT_FILE_NAME = "logs/rawEventLog";
-const char* TIMING_OUTPUT_FILE_NAME = "logs/timingLog";
-const char* FLOW_OUTPUT_FILE_NAME = "logs/flowEventLog";
+//const char* RAW_OUTPUT_FILE_NAME = "/media/odroid/E0FD-18007/logs_caer/rawEventLog";
+//const char* TIMING_OUTPUT_FILE_NAME = "/media/odroid/E0FD-18007/logs_caer/timingLog";
+//const char* FLOW_OUTPUT_FILE_NAME = "/media/odroid/E0FD-18007/logs_caer/flowEventLog";
+const char* RAW_OUTPUT_FILE_NAME = "/home/odroid/logs/rawEventLog";
+const char* TIMING_OUTPUT_FILE_NAME = "/home/odroid/logs/timingLog";
+const char* FLOW_OUTPUT_FILE_NAME = "/home/odroid/logs/flowEventLog";
 int64_t RAW_EVENT_BYTES = 8; // approximate raw event storage size in bytes
 int64_t EVENT_STORAGE_MARGIN = 100000000; // 100MB margin for storing events
 int64_t maxNumberOfRawEvents;
@@ -173,7 +176,6 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 	}
 #endif
 
-
 	OpticFlowFilterState state = moduleData->moduleState;
 
 	// If last timestamp maps are not allocated yet, do so now
@@ -257,7 +259,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			if ((state->outputState->mode == OF_OUT_FILE
 					|| state->outputState->mode == OF_OUT_BOTH)
 					&& state->timingOutputFile != NULL) {
-				fprintf(state->timingOutputFile, "%ld, %ld, %f, %f, %f, %f\n",
+				fprintf(state->timingOutputFile, "%lld, %lld, %f, %f, %f, %f\n",
 						e->timestamp, delay, state->flowState->flowRate,
 						state->wx, state->wy, state->D);
 			}
@@ -402,7 +404,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 		return (false);
 	}
 	int64_t bytesFree = (int64_t) stfs.f_bsize * (int64_t) stfs.f_bavail;
-	if (bytesFree <= EVENT_STORAGE_MARGIN) {
+	if (bytesFree <= EVENT_STORAGE_MARGIN && false)  {
 		caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
 				"Only %lld bytes available - raw logging disabled for safety", bytesFree);
 		return (false);
@@ -482,7 +484,7 @@ static void writeAEDatFile(OpticFlowFilterState state, caerModuleData moduleData
 		flowEvent e) {
 	if (state->rawOutputFile != NULL) {
 		static int64_t nEvents = 0;
-		if (nEvents < maxNumberOfRawEvents) {
+		if (nEvents < maxNumberOfRawEvents || true) {
 			fwrite(&e->data, 1, sizeof(e->data), state->rawOutputFile);
 			int32_t t = (int32_t) e->timestamp;
 			fwrite(&t, 1, sizeof(t), state->rawOutputFile);

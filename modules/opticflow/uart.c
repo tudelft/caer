@@ -330,4 +330,8 @@ int uart_rx(int len, unsigned char *data, int timeout_ms)
   return (l);
 }
 
+int uart_drain(void) {
+    return (tcdrain(serial_handle));
+}
+
 #endif
