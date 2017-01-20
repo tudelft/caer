@@ -29,9 +29,11 @@ bool initUartOutput(flowOutputState state, const char* port, unsigned int baud, 
 				"Failed to identify serial communication, errno=%i.",uartErrno);
 		return (false);
 	}
-	// Test message
-	char* testMessage = (char*)"DVS128UART";
-	if (uart_tx((int) strlen(testMessage), (unsigned char*) testMessage)) {
+	// Test message for sync at startup
+	int8_t n;
+	unsigned char testMessage = 255;
+	for (n = 0; n < 5; n++)
+		if (uart_tx(1, &testMessage)) {
 		caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART,
 				"Test transmission unsuccessful - connection closed.");
 		uart_close();
@@ -187,6 +189,7 @@ static inline bool sendFlowEventUart(flowEvent e) {
 	int16_t v = (int16_t) (e->v*10);
 
 	// Send data over UART
+	//uart_drain();
 	if (uart_tx(sizeof(x),(unsigned char*) &x)
 			|| uart_tx(sizeof(y),(unsigned char*) &y)
 			|| uart_tx(sizeof(t),(unsigned char*) &t)
@@ -195,7 +198,7 @@ static inline bool sendFlowEventUart(flowEvent e) {
 			|| uart_tx(sizeof(eventSeparator), &eventSeparator))  {
 		int errnum = errno;
 		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"TX error: %s",strerror(errnum));
-		exit(EXIT_FAILURE); // Prevent overflow of errors
+		//exit(EXIT_FAILURE); // Prevent overflow of errors
 		return (false);
 	}
 	return (true);
@@ -256,8 +259,8 @@ static int outputHandlerThread(void *stateArg) {
 			break;
 	}
 
-	struct timespec sleepTime = { .tv_sec = 0, .tv_nsec = 500000 };
-
+	struct timespec sleepTime = { .tv_sec = 0, .tv_nsec = 400000 };
+	struct timespec sleepTime2 = { .tv_sec = 0, .tv_nsec = 100000 };
 	// Wait until the buffer is initialized
 	while (!atomic_load_explicit(&state->running, memory_order_relaxed)) {
 		thrd_sleep(&sleepTime, NULL);
@@ -266,10 +269,7 @@ static int outputHandlerThread(void *stateArg) {
 	// Main thread loop
 	while (atomic_load_explicit(&state->running, memory_order_relaxed)) {
 		flowEvent e = getFlowEventFromTransferBuffer(state->buffer);
-		if (e == NULL) { // no data: sleep for a while
-			thrd_sleep(&sleepTime, NULL);
-		}
-		else {
+		if (e != NULL) { 
 			if (state->mode == OF_OUT_UART || state->mode == OF_OUT_BOTH) {
 				if (!sendFlowEventUart(e)) {
 					caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART, "A flow event was not sent.");
@@ -282,6 +282,10 @@ static int outputHandlerThread(void *stateArg) {
 			}
 			free(e);
 		}
+		else {
+			thrd_sleep(&sleepTime,NULL);	
+		}	
+		thrd_sleep(&sleepTime2,NULL);
 	}
 
 	// If shutdown: empty buffer before closing thread
