@@ -235,7 +235,7 @@ bool initFileOutput(flowOutputState state, const char* fileBaseName, size_t buff
 	// Initialize file communication
 	state->file = fopen(fileName,"w+");
 	if (state->file == NULL) {
-		caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE,"Failed to open file");
+		caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE,"Failed to open file %s", fileName);
 		return (false);
 	}
 	// Write header as check for file output

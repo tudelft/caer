@@ -354,7 +354,22 @@ int main(int argc, char **argv) {
 
 	// Initialize config storage from file, support command-line overrides.
 	// If no init from file needed, pass NULL.
-	caerConfigInit("caer-config.xml", argc, argv);
+/*	char config_loc[255];
+	memcpy(config_loc, argv[0],255);
+	char* fn = strrchr(config_loc,'/');
+	if (fn)	{
+		*fn = '\0';
+	}
+	if(fn - config_loc > 1){
+		fn = config_loc + 1;
+		strcat(fn, "/");
+	} else {
+		fn = config_loc + 1;
+	}
+
+	strcat(fn, "caer-config.xml");
+	caerConfigInit(fn, argc, argv);*/
+	caerConfigInit("/home/odroid/caer/caer-config.xml", argc, argv);
 
 	// Initialize logging sub-system.
 	caerLogInit();
