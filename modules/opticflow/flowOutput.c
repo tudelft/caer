@@ -15,11 +15,169 @@
 #define SUBSYSTEM_FILE "Event logger"
 #define FILE_MAX_NUMBER_OF_LINES 5000000
 
-static inline flowEvent getFlowEventFromTransferBuffer(RingBuffer buffer);
-static inline bool sendFlowEventUart(flowEvent e);
-static int outputHandlerThread(void *stateArg);
-static inline bool writeFlowEventToFile(flowOutputState state,
-		flowEvent e);
+void addFlowEventToTransferBuffer(flowOutputState state, flowEvent e) {
+	if (e == NULL) {
+		// event transmisison problem - nothing to copy
+		return;
+	}
+	if (!e->hasFlow) {
+		// only copy event with flow
+		return;
+	}
+
+	// Copy event content
+	flowEvent copy = malloc(sizeof(struct flow_event));
+	*copy = *e;
+
+	// Add to ring buffer
+	if (!ringBufferPut(state->buffer, copy)) {
+		free(copy);
+		caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART,"Failed to add event to ring buffer.");
+		return;
+	}
+}
+
+static flowEvent getFlowEventFromTransferBuffer(RingBuffer buffer) {
+	flowEvent e = ringBufferGet(buffer);
+	return (e);
+}
+
+static bool sendFlowEventUart(flowEvent e) {
+	if (e == NULL) {
+		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Event null pointer found.");
+		return (false);
+	}
+	if (!e->hasFlow) {
+		return (false);
+	}
+	// Events are separated by unsigned ints of value 255. This value should
+	// never occur as pixel location
+	unsigned char eventSeparator = 255;
+
+	int16_t x = (int16_t) (e->xu*10);
+	int16_t y = (int16_t) (e->yu*10);
+	int32_t t = caerPolarityEventGetTimestamp((caerPolarityEvent) e);
+	int16_t u = (int16_t) (e->u*10);
+	int16_t v = (int16_t) (e->v*10);
+
+	// Send data over UART
+	//uart_drain();
+	if (uart_tx(sizeof(x),(unsigned char*) &x)
+			|| uart_tx(sizeof(y),(unsigned char*) &y)
+			|| uart_tx(sizeof(t),(unsigned char*) &t)
+			|| uart_tx(sizeof(u),(unsigned char*) &u)
+			|| uart_tx(sizeof(v),(unsigned char*) &v)
+			|| uart_tx(sizeof(eventSeparator), &eventSeparator))  {
+		int errnum = errno;
+		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"TX error: %s",strerror(errnum));
+		//exit(EXIT_FAILURE); // Prevent overflow of errors
+		return (false);
+	}
+	return (true);
+}
+
+static bool writeFlowEventToFile(flowOutputState state,
+		flowEvent e) {
+
+	if (e == NULL) {
+		caerLog(CAER_LOG_ERROR,SUBSYSTEM_FILE,"Event null pointer found.");
+		return (false);
+	}
+	if (!e->hasFlow) {
+		return (false);
+	}
+
+	// Get event data
+	uint8_t x = (uint8_t) caerPolarityEventGetX((caerPolarityEvent) e);
+	uint8_t y = (uint8_t) caerPolarityEventGetY((caerPolarityEvent) e);
+	int32_t t = caerPolarityEventGetTimestamp((caerPolarityEvent) e);
+	bool p = caerPolarityEventGetPolarity((caerPolarityEvent) e);
+	double u = e->u;
+	double v = e->v;
+
+	// Write to file
+	if (state->fileLineNumber < FILE_MAX_NUMBER_OF_LINES)  {
+		fprintf(state->file,"%3i,%3i,%10i,%d,%4.3f,%4.3f\n",x,y,t,p,u,v);
+		state->fileLineNumber++;
+	}
+	else {
+		// If too many lines, stop logging to prevent overrun
+		if (state->fileLineNumber == FILE_MAX_NUMBER_OF_LINES) {
+			caerLog(CAER_LOG_NOTICE, SUBSYSTEM_FILE,
+					"File log reached limit of %d lines - "
+					"no more lines will be added.", FILE_MAX_NUMBER_OF_LINES);
+			state->fileLineNumber++;
+		}
+	}
+	return (true);
+}
+
+static int outputHandlerThread(void *stateArg) {
+	if (stateArg == NULL) {
+		return (thrd_error);
+	}
+	flowOutputState state = stateArg;
+	switch (state->mode) {
+		case OF_OUT_UART:
+			thrd_set_name(SUBSYSTEM_UART);
+			break;
+		case OF_OUT_FILE:
+			thrd_set_name(SUBSYSTEM_FILE);
+			break;
+		case OF_OUT_BOTH:
+			thrd_set_name("FLOW_OUTPUT");
+			break;
+		case OF_OUT_NONE:
+			break;
+	}
+
+	struct timespec sleepTime = { .tv_sec = 0, .tv_nsec = 100000 };
+	struct timespec sleepTime2 = { .tv_sec = 0, .tv_nsec = 100000 };
+
+	// Wait until the buffer is initialized
+	while (!atomic_load_explicit(&state->running, memory_order_relaxed)) {
+		thrd_sleep(&sleepTime, NULL);
+	}
+
+	// Main thread loop
+	while (atomic_load_explicit(&state->running, memory_order_relaxed)) {
+		flowEvent e = getFlowEventFromTransferBuffer(state->buffer);
+		if (e != NULL) {
+			if (state->mode == OF_OUT_UART || state->mode == OF_OUT_BOTH) {
+				if (!sendFlowEventUart(e)) {
+					caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART, "A flow event was not sent.");
+				}
+			}
+			if (state->mode == OF_OUT_FILE || state->mode == OF_OUT_BOTH) {
+				if (!writeFlowEventToFile(state,e)) {
+					caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE, "A flow event was not written.");
+				}
+			}
+			free(e);
+		} else {
+			thrd_sleep(&sleepTime,NULL);	
+		}
+		thrd_sleep(&sleepTime2,NULL);
+	}
+
+	// If shutdown: empty buffer before closing thread
+	flowEvent e;
+	while ((e = getFlowEventFromTransferBuffer(state->buffer)) != NULL) {
+		if (state->mode == OF_OUT_UART || state->mode == OF_OUT_BOTH) {
+			if (!sendFlowEventUart(e)) {
+				caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART, "A flow event was not sent.");
+			}
+		}
+		if (state->mode == OF_OUT_FILE || state->mode == OF_OUT_BOTH) {
+			if (!writeFlowEventToFile(state,e)) {
+				caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE, "A flow event was not written.");
+			}
+		}
+		free(e);
+	}
+
+	return (thrd_success);
+}
 
 bool initUartOutput(flowOutputState state, const char* port, unsigned int baud, size_t bufferSize) {
 	// Initialize UART communication
@@ -30,10 +188,8 @@ bool initUartOutput(flowOutputState state, const char* port, unsigned int baud, 
 		return (false);
 	}
 	// Test message for sync at startup
-	int8_t n;
 	unsigned char testMessage = 255;
-	for (n = 0; n < 5; n++)
-		if (uart_tx(1, &testMessage)) {
+	if (uart_tx(1, &testMessage)) {
 		caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART,
 				"Test transmission unsuccessful - connection closed.");
 		uart_close();
@@ -143,166 +299,3 @@ void closeFileOutput(flowOutputState state) {
 	fclose(state->file);
 }
 
-void addFlowEventToTransferBuffer(flowOutputState state, flowEvent e) {
-	if (e == NULL) {
-		// event transmisison problem - nothing to copy
-		return;
-	}
-	if (!e->hasFlow) {
-		// only copy event with flow
-		return;
-	}
-
-	// Copy event content
-	flowEvent copy = malloc(sizeof(struct flow_event));
-	*copy = *e;
-
-	// Add to ring buffer
-	if (!ringBufferPut(state->buffer, copy)) {
-		free(copy);
-		caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART,"Failed to add event to ring buffer.");
-		return;
-	}
-}
-
-static inline flowEvent getFlowEventFromTransferBuffer(RingBuffer buffer) {
-	flowEvent e = ringBufferGet(buffer);
-	return (e);
-}
-
-static inline bool sendFlowEventUart(flowEvent e) {
-	if (e == NULL) {
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"Event null pointer found.");
-		return (false);
-	}
-	if (!e->hasFlow) {
-		return (false);
-	}
-	// Events are separated by unsigned ints of value 255. This value should
-	// never occur as pixel location
-	unsigned char eventSeparator = 255;
-
-	int16_t x = (int16_t) (e->xu*10);
-	int16_t y = (int16_t) (e->yu*10);
-	int32_t t = caerPolarityEventGetTimestamp((caerPolarityEvent) e);
-	int16_t u = (int16_t) (e->u*10);
-	int16_t v = (int16_t) (e->v*10);
-
-	// Send data over UART
-	//uart_drain();
-	if (uart_tx(sizeof(x),(unsigned char*) &x)
-			|| uart_tx(sizeof(y),(unsigned char*) &y)
-			|| uart_tx(sizeof(t),(unsigned char*) &t)
-			|| uart_tx(sizeof(u),(unsigned char*) &u)
-			|| uart_tx(sizeof(v),(unsigned char*) &v)
-			|| uart_tx(sizeof(eventSeparator), &eventSeparator))  {
-		int errnum = errno;
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_UART,"TX error: %s",strerror(errnum));
-		//exit(EXIT_FAILURE); // Prevent overflow of errors
-		return (false);
-	}
-	return (true);
-}
-
-static inline bool writeFlowEventToFile(flowOutputState state,
-		flowEvent e) {
-
-	if (e == NULL) {
-		caerLog(CAER_LOG_ERROR,SUBSYSTEM_FILE,"Event null pointer found.");
-		return (false);
-	}
-	if (!e->hasFlow) {
-		return (false);
-	}
-
-	// Get event data
-	uint8_t x = (uint8_t) caerPolarityEventGetX((caerPolarityEvent) e);
-	uint8_t y = (uint8_t) caerPolarityEventGetY((caerPolarityEvent) e);
-	int32_t t = caerPolarityEventGetTimestamp((caerPolarityEvent) e);
-	bool p = caerPolarityEventGetPolarity((caerPolarityEvent) e);
-	double u = e->u;
-	double v = e->v;
-
-	// Write to file
-	if (state->fileLineNumber < FILE_MAX_NUMBER_OF_LINES)  {
-		fprintf(state->file,"%3i,%3i,%10i,%d,%4.3f,%4.3f\n",x,y,t,p,u,v);
-		state->fileLineNumber++;
-	}
-	else {
-		// If too many lines, stop logging to prevent overrun
-		if (state->fileLineNumber == FILE_MAX_NUMBER_OF_LINES) {
-			caerLog(CAER_LOG_NOTICE, SUBSYSTEM_FILE,
-					"File log reached limit of %d lines - "
-					"no more lines will be added.", FILE_MAX_NUMBER_OF_LINES);
-			state->fileLineNumber++;
-		}
-	}
-	return (true);
-}
-
-static int outputHandlerThread(void *stateArg) {
-	if (stateArg == NULL) {
-		return (thrd_error);
-	}
-	flowOutputState state = stateArg;
-	switch (state->mode) {
-		case OF_OUT_UART:
-			thrd_set_name(SUBSYSTEM_UART);
-			break;
-		case OF_OUT_FILE:
-			thrd_set_name(SUBSYSTEM_FILE);
-			break;
-		case OF_OUT_BOTH:
-			thrd_set_name("FLOW_OUTPUT");
-			break;
-		case OF_OUT_NONE:
-			break;
-	}
-
-	struct timespec sleepTime = { .tv_sec = 0, .tv_nsec = 400000 };
-	struct timespec sleepTime2 = { .tv_sec = 0, .tv_nsec = 100000 };
-	// Wait until the buffer is initialized
-	while (!atomic_load_explicit(&state->running, memory_order_relaxed)) {
-		thrd_sleep(&sleepTime, NULL);
-	}
-
-	// Main thread loop
-	while (atomic_load_explicit(&state->running, memory_order_relaxed)) {
-		flowEvent e = getFlowEventFromTransferBuffer(state->buffer);
-		if (e != NULL) { 
-			if (state->mode == OF_OUT_UART || state->mode == OF_OUT_BOTH) {
-				if (!sendFlowEventUart(e)) {
-					caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART, "A flow event was not sent.");
-				}
-			}
-			if (state->mode == OF_OUT_FILE || state->mode == OF_OUT_BOTH) {
-				if (!writeFlowEventToFile(state,e)) {
-					caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE, "A flow event was not written.");
-				}
-			}
-			free(e);
-		}
-		else {
-			thrd_sleep(&sleepTime,NULL);	
-		}	
-		thrd_sleep(&sleepTime2,NULL);
-	}
-
-	// If shutdown: empty buffer before closing thread
-	flowEvent e;
-	while ((e = getFlowEventFromTransferBuffer(state->buffer)) != NULL) {
-		if (state->mode == OF_OUT_UART || state->mode == OF_OUT_BOTH) {
-			if (!sendFlowEventUart(e)) {
-				caerLog(CAER_LOG_ALERT, SUBSYSTEM_UART, "A flow event was not sent.");
-			}
-		}
-		if (state->mode == OF_OUT_FILE || state->mode == OF_OUT_BOTH) {
-			if (!writeFlowEventToFile(state,e)) {
-				caerLog(CAER_LOG_ALERT, SUBSYSTEM_FILE, "A flow event was not written.");
-			}
-		}
-		free(e);
-	}
-
-	return (thrd_success);
-}

@@ -28,12 +28,9 @@ outputMode outMode = OF_OUT_BOTH;
 const char* UART_PORT = "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B921600;
 
-//const char* RAW_OUTPUT_FILE_NAME = "/media/odroid/E0FD-18007/logs_caer/rawEventLog";
-//const char* TIMING_OUTPUT_FILE_NAME = "/media/odroid/E0FD-18007/logs_caer/timingLog";
-//const char* FLOW_OUTPUT_FILE_NAME = "/media/odroid/E0FD-18007/logs_caer/flowEventLog";
-const char* RAW_OUTPUT_FILE_NAME = "/home/odroid/logs/rawEventLog";
-const char* TIMING_OUTPUT_FILE_NAME = "/home/odroid/logs/timingLog";
-const char* FLOW_OUTPUT_FILE_NAME = "/home/odroid/logs/flowEventLog";
+const char* RAW_OUTPUT_FILE_NAME = "logs/rawEventLog";
+const char* TIMING_OUTPUT_FILE_NAME = "logs/timingLog";
+const char* FLOW_OUTPUT_FILE_NAME = "logs/flowEventLog";
 int64_t RAW_EVENT_BYTES = 8; // approximate raw event storage size in bytes
 int64_t EVENT_STORAGE_MARGIN = 100000000; // 100MB margin for storing events
 int64_t maxNumberOfRawEvents;

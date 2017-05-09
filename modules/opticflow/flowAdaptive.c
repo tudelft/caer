@@ -41,7 +41,7 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 
 	// Do not compute flow if the flow event rate is too high
 	if (state->limitEventRate) {
-		if (t - state->lastEventT < 1) {
+		if (t <= state->lastEventT) {
 			return;
 		}
 		float flowRate = 1e6f/((float) (t - state->lastEventT));
@@ -51,8 +51,8 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	}
 
 	// Reject points at edges, since they give rise to erroneous flow
-	if (x < 1 || x > buffer->sizeX -2
-			|| y < 1 || y > buffer->sizeY -2) {
+	if (x < 1 || x > buffer->sizeX - 2
+			|| y < 1 || y > buffer->sizeY - 2) {
 		return;
 	}
 
