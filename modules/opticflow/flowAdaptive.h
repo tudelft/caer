@@ -10,7 +10,6 @@
 
 #include "flowEvent.h"
 
-
 /**
  * States and parameters of the optic flow algorithm.
  */

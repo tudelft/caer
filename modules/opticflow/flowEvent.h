@@ -140,7 +140,7 @@ static inline flowEventPacket flowEventPacketInitFromPolarity(caerPolarityEventP
 	flowEventPacket flow = malloc(sizeof(struct flow_event_packet) + eventCapacity*eventSize);
 
 	flow->packetHeader = polarity->packetHeader; //take same specs of packets
-	flow->events = calloc(eventNumber,sizeof(struct flow_event));
+	flow->events = calloc((size_t)eventNumber,sizeof(struct flow_event));
 	uint64_t i;
 	for (i=0; i < eventNumber; i++) {
 		caerPolarityEvent p = caerPolarityEventPacketGetEvent(polarity,(int)i);
