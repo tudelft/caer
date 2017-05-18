@@ -8,6 +8,8 @@
 #include <allegro5/allegro.h>
 #include <allegro5/allegro_font.h>
 
+#include "modules/opticflow/flowEvent.h"
+
 #define VISUALIZER_DEFAULT_ZOOM 2.0f
 #define VISUALIZER_REFRESH_RATE 60.0f
 
@@ -52,6 +54,8 @@ bool caerVisualizerRendererSpikeEvents(caerVisualizerPublicState state, caerEven
 bool caerVisualizerRendererSpikeEventsRaster(caerVisualizerPublicState state, caerEventPacketContainer container,
 bool doClear);
 bool caerVisualizerRendererETF4D(caerVisualizerPublicState state, caerEventPacketContainer container,
+bool doClear);
+bool caerVisualizerRendererFlowEvents(caerVisualizerPublicState state, caerEventPacketContainer container,
 bool doClear);
 
 // Default event handlers.

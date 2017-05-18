@@ -220,17 +220,15 @@ static bool mainloop_1(void) {
 #ifdef ENABLE_MEANRATEFILTER_DVS
 	caerFrameEventPacket freqplot = NULL;
 	caerMeanRateFilterDVS(15, polarity_cam, &freqplot);
-#ifdef ENABLE_FILE_INPUT
-	caerMeanRateFilterDVS(15, polarity_cam, &freqplot);
 #endif
 
 	// Computes optic flow from events
 #ifdef ENABLE_OPTICFLOW
-//#ifdef ENABLE_VISUALIZER
-	//flow = flowEventPacketInitFromPolarity(polarity);
-	//caerVisualizer(63, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
-//#endif
-	caerOpticFlowFilter(20, flow);
+	flow = flowEventPacketInitFromPolarity(polarity_cam);
+	caerOpticFlowFilter(20, polarity_cam, flow);
+#ifdef ENABLE_VISUALIZER
+	caerVisualizer(63, "Flow", &caerVisualizerRendererFlowEvents, NULL, (caerEventPacketHeader) flow);
+#endif
 	flowEventPacketFree(flow);
 #endif
 
@@ -246,7 +244,7 @@ static bool mainloop_1(void) {
 
 	// Filters can also extract information from event packets: for example
 	// to show statistics about the current event-rate.
-#ifdef ENABLE_STATISTICS && !defined(ENABLE_OPTICFLOW)
+#if defined(ENABLE_STATISTICS) && !defined(ENABLE_OPTICFLOW)
 	caerStatistics(3, (caerEventPacketHeader) polarity_cam, 1000);
 #endif
 
@@ -460,22 +458,23 @@ int main(int argc, char **argv) {
 
 	// Initialize config storage from file, support command-line overrides.
 	// If no init from file needed, pass NULL.
-/*	char config_loc[255];
-	memcpy(config_loc, argv[0],255);
-	char* fn = strrchr(config_loc,'/');
+	// Allocate memory for home directory path.
+	char path[PATH_MAX];
+
+	// get path to head folder
+	char symlink_path[PATH_MAX];
+	pid_t pid = getpid();
+	sprintf(symlink_path, "/proc/%d/exe", pid);
+	readlink(symlink_path, path, PATH_MAX);
+
+	// strip function name
+	char* fn = strrchr(path,'/');
 	if (fn)	{
 		*fn = '\0';
 	}
-	if(fn - config_loc > 1){
-		fn = config_loc + 1;
-		strcat(fn, "/");
-	} else {
-		fn = config_loc + 1;
-	}
 
-	strcat(fn, "caer-config.xml");
-	caerConfigInit(fn, argc, argv);*/
-	caerConfigInit("/home/odroid/caer/caer-config.xml", argc, argv);
+	strcat(path, "/caer-config.xml");
+	caerConfigInit(path, argc, argv);
 
 	// Initialize logging sub-system.
 	caerLogInit();

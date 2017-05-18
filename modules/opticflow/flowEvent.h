@@ -19,7 +19,8 @@
  *
  * It is augmented with three variables:
  * - u,v, which indicate horizontal/vertical optical flow speed
- * - xu,yu, the undistorted pixel coordinates
+ * - x, y are the pixel location of the event
+ * - xu,yu, the undistorted pixel coordinates after appying calibration
  * - hasFlow, a flag indicating that flow has been assigned to this event.
  */
 struct flow_event {
@@ -52,6 +53,7 @@ struct flow_event_packet {
  * Pointer to flow event packet.
 */
 typedef struct flow_event_packet *flowEventPacket;
+typedef const struct flow_event_packet *flowEventPacketConst;
 
 /**
  * Map of pixel coordinates to undistorted pixel coordinates (FLOATS instead of uint8_t)
@@ -108,17 +110,17 @@ static inline struct flow_event flowEventInitXYTP(uint16_t x, uint16_t y, int64_
 	return (e);
 }
 
-static inline uint8_t flowEventGetX(flowEvent event) {
-	return U8T(GET_NUMBITS32(event->data, X_ADDR_SHIFT, X_ADDR_MASK));
+static inline uint16_t flowEventGetX(flowEvent event) {
+	return (caerPolarityEventGetX((caerPolarityEventConst) event));
 }
-static inline uint8_t flowEventGetY(flowEvent event) {
-	return U8T(GET_NUMBITS32(event->data, Y_ADDR_SHIFT,Y_ADDR_MASK));
+static inline uint16_t flowEventGetY(flowEvent event) {
+	return (caerPolarityEventGetY((caerPolarityEventConst) event));
 }
-static inline bool flowEventGetPolarity(flowEvent event) {
-	return (GET_NUMBITS32(event->data, POLARITY_SHIFT, POLARITY_MASK));
+static inline uint16_t flowEventGetPolarity(flowEvent event) {
+	return (caerPolarityEventGetPolarity((caerPolarityEventConst) event));
 }
-static inline bool flowEventIsValid(flowEvent event) {
-	return (GET_NUMBITS32(event->data, VALID_MARK_SHIFT, VALID_MARK_MASK));
+static inline uint16_t flowEventIsValid(flowEvent event) {
+	return (caerPolarityEventIsValid((caerPolarityEventConst) event));
 }
 
 /**
@@ -135,9 +137,7 @@ static inline flowEventPacket flowEventPacketInitFromPolarity(caerPolarityEventP
 	}
 
 	uint64_t eventNumber = (uint64_t) polarity->packetHeader.eventNumber;
-	size_t eventCapacity = (size_t) polarity->packetHeader.eventCapacity;
-	size_t eventSize = sizeof(struct flow_event);
-	flowEventPacket flow = malloc(sizeof(struct flow_event_packet) + eventCapacity*eventSize);
+	flowEventPacket flow = malloc(sizeof(struct flow_event_packet));
 
 	flow->packetHeader = polarity->packetHeader; //take same specs of packets
 	flow->events = calloc((size_t)eventNumber,sizeof(struct flow_event));
@@ -251,5 +251,40 @@ static inline int64_t simple2DBufferLongGet(simple2DBufferLong buffer, size_t x,
 		return (0);
 	return (buffer->buffer2d[x][y]);
 }
+
+/**
+ * Iterator over only the valid polarity events in a packet.
+ * Returns the current index in the 'caerPolarityIteratorCounter' variable of type
+ * 'int32_t' and the current event in the 'caerPolarityIteratorElement' variable
+ * of type caerPolarityEvent.
+ *
+ * FLOW_PACKET: a valid PolarityEventPacket pointer. Cannot be NULL.
+ */
+#define FLOW_ITERATOR_VALID_START(FLOW_PACKET) \
+	for (int32_t flowIteratorCounter = 0; \
+		flowIteratorCounter < caerEventPacketHeaderGetEventNumber(&(FLOW_PACKET)->packetHeader); \
+		flowIteratorCounter++) { \
+		flowEvent flowIteratorElement = flowEventPacketGetEvent(FLOW_PACKET, flowIteratorCounter); \
+		if (!flowEventIsValid(flowIteratorElement)) { continue; } // Skip invalid polarity events.
+
+/**
+ * Const-Iterator over only the valid polarity events in a packet.
+ * Returns the current index in the 'flowIteratorCounter' variable of type
+ * 'int32_t' and the current read-only event in the 'flowIteratorElement' variable
+ * of type flowEventConst.
+ *
+ * FLOW_PACKET: a valid FlowEventPacket pointer. Cannot be NULL.
+ */
+#define FLOW_CONST_ITERATOR_VALID_START(FLOW_PACKET) \
+	for (int32_t flowIteratorCounter = 0; \
+		flowIteratorCounter < caerEventPacketHeaderGetEventNumber(&(FLOW_PACKET)->packetHeader); \
+		flowIteratorCounter++) { \
+		flowEventConst flowIteratorElement = flowEventPacketGetEventConst(FLOW_PACKET, flowIteratorCounter); \
+		if (!flowEventIsValid(flowIteratorElement)) { continue; } // Skip invalid polarity events.
+
+/**
+ * Iterator close statement.
+ */
+#define CAER_FLOW_ITERATOR_VALID_END }
 
 #endif

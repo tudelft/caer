@@ -513,3 +513,57 @@ bool caerVisualizerMultiRendererPolarityAndFrameEvents(caerVisualizerPublicState
 
 	return (drewFrameEvents || drewPolarityEvents);
 }
+
+// todo: this doesn't work
+bool caerVisualizerRendererFlowEvents(caerVisualizerPublicState state, caerEventPacketContainer container,
+ bool doClear) {
+	// Clear bitmap to black to erase old events.
+	if (doClear) {
+		al_clear_to_color(al_map_rgb(0, 0, 0));
+	}
+
+	caerEventPacketHeader flowEventPacketHeader = caerEventPacketContainerFindEventPacketByType(container,
+		FLOW_EVENT_TYPE);
+
+	if (flowEventPacketHeader == NULL || caerEventPacketHeaderGetEventValid(flowEventPacketHeader) == 0) {
+		return (false);
+	}
+
+	// Render all valid events.
+	FLOW_ITERATOR_VALID_START((flowEventPacket) flowEventPacketHeader)
+		if (flowEventGetPolarity(flowIteratorElement)) {
+			// ON polarity (green).
+			al_put_pixel(flowEventGetX(flowIteratorElement),
+				flowEventGetY(flowIteratorElement), al_map_rgb(0, 255, 0));
+		}
+		else {
+			// OFF polarity (red).
+			al_put_pixel(flowEventGetX(flowIteratorElement),
+				flowEventGetY(flowIteratorElement), al_map_rgb(255, 0, 0));
+		}
+
+		if (flowIteratorElement->hasFlow) {
+			float x1 = (float) flowEventGetX(flowIteratorElement);
+			float y1 = (float) flowEventGetY(flowIteratorElement);
+			if (x1 > 128 || y1 > 128){
+				//printf("%f %f\n", x1, y1);
+			}
+			float angle = (atan2f(flowIteratorElement->v,flowIteratorElement->u)/(2*M_PI)+0.5);
+			float x2 = x1 + flowIteratorElement->u * .1f;
+			float y2 = y1 + flowIteratorElement->v * .1f;
+
+			// bound vector
+			if (x2 < 0) x2 = 0;
+			if (x2 >= (float)state->bitmapRendererSizeX) x2 = (float)state->bitmapRendererSizeX - 1;
+
+			if (y2 < 0) y2 = 0;
+			if (y2 >= (float)state->bitmapRendererSizeY) y2 = (float)state->bitmapRendererSizeY - 1;
+
+			al_draw_line(x1,y1,x2,y2, al_map_rgb(
+					(unsigned char) (255*angle),
+					(unsigned char) (255*(1-angle)),
+					(unsigned char) (255*(1/(1+10*angle)))),1);
+		}
+	CAER_POLARITY_ITERATOR_VALID_END
+	return (true);
+}

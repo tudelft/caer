@@ -15,10 +15,12 @@
 #include "flowOutput.h"
 #include "termios.h"
 #include "dvs128Calibration.h"
+#include "modules/misc/out/file.h"
 
 #include <sys/statfs.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <limits.h>
 
 #define RING_BUFFER_SIZE 16384
 #define DVS128_LOCAL_FLOW_TO_VENTRAL_FLOW 1/115.0f
@@ -28,9 +30,9 @@ outputMode outMode = OF_OUT_BOTH;
 const char* UART_PORT = "/dev/ttySAC2"; // based on Odroid XU4 ports
 unsigned int BAUD = B921600;
 
-const char* RAW_OUTPUT_FILE_NAME = "/home/odroid/caer/logs/rawEventLog";
-const char* TIMING_OUTPUT_FILE_NAME = "/home/odroid/caer/logs/timingLog";
-const char* FLOW_OUTPUT_FILE_NAME = "/home/odroid/caer/logs/flowEventLog";
+const char* RAW_OUTPUT_FILE_NAME = "rawEventLog";
+const char* TIMING_OUTPUT_FILE_NAME = "timingLog";
+const char* FLOW_OUTPUT_FILE_NAME = "flowEventLog";
 int64_t RAW_EVENT_BYTES = 8; // approximate raw event storage size in bytes
 int64_t EVENT_STORAGE_MARGIN = 100000000; // 100MB margin for storing events
 int64_t maxNumberOfRawEvents;
@@ -67,7 +69,7 @@ static struct caer_module_functions caerOpticFlowFilterFunctions = { .moduleInit
 	&caerOpticFlowFilterConfig, .moduleExit = &caerOpticFlowFilterExit };
 
 void caerOpticFlowFilter(uint16_t moduleID, caerPolarityEventPacket polarity, flowEventPacket flow) {
-	caerModuleData moduleData = caerMainloopFindModule(moduleID, "OpticFlow");
+	caerModuleData moduleData = caerMainloopFindModule(moduleID, "OpticFlow", CAER_MODULE_PROCESSOR);
 	if (moduleData == NULL) {
 		return;
 	}
@@ -92,7 +94,7 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 
 	sshsNodePutByteIfAbsent(moduleData->moduleNode, "subSampleBy", 0);
 
-	OpticFlowFilterState state = moduleData->moduleState;
+	OpticFlowFilterState state = (OpticFlowFilterState)moduleData->moduleState;
 	state->flowState = malloc(sizeof(struct flow_adaptive_state));
 	state->flowState->refractoryPeriod = sshsNodeGetLong(moduleData->moduleNode,
 			"refractoryPeriod");
@@ -132,6 +134,9 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 	// Add config listeners last, to avoid having them dangling if Init doesn't succeed.
 	sshsNodeAddAttributeListener(moduleData->moduleNode, moduleData, &caerModuleConfigDefaultListener);
 
+	// get path to head folder
+	char* path = getLogPath(moduleData->moduleSubSystemString);
+
 	state->outputState = malloc(sizeof(struct flow_output_state));
 	atomic_store(&state->outputState->running, false);
 	state->outputState->mode = outMode;
@@ -143,14 +148,18 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 		}
 	}
 	if (outMode == OF_OUT_FILE || outMode == OF_OUT_BOTH) {
-		if (!initFileOutput(state->outputState, FLOW_OUTPUT_FILE_NAME, RING_BUFFER_SIZE)) {
+		// build absolute path
+		char file_path[PATH_MAX];
+		sprintf(file_path, "%s/%s", path, FLOW_OUTPUT_FILE_NAME);
+		if (!initFileOutput(state->outputState, file_path, RING_BUFFER_SIZE)) {
 			caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
 					"File logging not available.");
 		}
 	}
 	if (outMode == OF_OUT_FILE || outMode == OF_OUT_BOTH) {
-		openAEDatFile(state, moduleData, RAW_OUTPUT_FILE_NAME);
+		openAEDatFile(state, moduleData, path);
 	}
+	free(path);
 
 	return (true);
 }
@@ -167,11 +176,11 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 		return;
 	}
 
-#ifdef ENABLE_VISUALIZER
 	if (flow == NULL) {
 		return;
 	}
-#endif
+
+	//flow = flowEventPacketInitFromPolarity(polarity);
 
 	OpticFlowFilterState state = moduleData->moduleState;
 
@@ -191,15 +200,8 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 	// Iterate over all events.
 	for (int32_t i = 0; i < caerEventPacketHeaderGetEventNumber(&polarity->packetHeader); i++) {
 		// In all cases, we work with flow events in this module
-#ifdef ENABLE_VISUALIZER
-		// Flow event is readily available from flow packet
 		flowEvent e = flowEventPacketGetEvent(flow,i);
-#else
-		// We need to separately identify the flow event
-		caerPolarityEvent pol = caerPolarityEventPacketGetEvent(polarity,i);
-		struct flow_event fEvent = flowEventInitFromPolarity(pol,polarity);
-		flowEvent e = &fEvent;
-#endif
+
 		// Input logging
 		if (state->outputState->mode == OF_OUT_FILE
 				|| state->outputState->mode == OF_OUT_BOTH) {
@@ -210,8 +212,8 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			continue;
 		}
 
-		uint8_t x = flowEventGetX(e);
-		uint8_t y = flowEventGetY(e);
+		uint16_t x = flowEventGetX(e);
+		uint16_t y = flowEventGetY(e);
 		bool p = flowEventGetPolarity(e);
 
 		// Compute optic flow
@@ -256,7 +258,7 @@ static void caerOpticFlowFilterRun(caerModuleData moduleData, size_t argsNumber,
 			if ((state->outputState->mode == OF_OUT_FILE
 					|| state->outputState->mode == OF_OUT_BOTH)
 					&& state->timingOutputFile != NULL) {
-				fprintf(state->timingOutputFile, "%lld, %lld, %f, %f, %f, %f\n",
+				fprintf(state->timingOutputFile, "%ld, %ld, %f, %f, %f, %f\n",
 						e->timestamp, delay, state->flowState->flowRate,
 						state->wx, state->wy, state->D);
 			}
@@ -403,12 +405,12 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	int64_t bytesFree = (int64_t) stfs.f_bsize * (int64_t) stfs.f_bavail;
 	if (bytesFree <= EVENT_STORAGE_MARGIN && false)  {
 		caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
-				"Only %lld bytes available - raw logging disabled for safety", bytesFree);
+				"Only %ld bytes available - raw logging disabled for safety", bytesFree);
 		return (false);
 	}
 	maxNumberOfRawEvents = (bytesFree - EVENT_STORAGE_MARGIN) / RAW_EVENT_BYTES;
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-			"%lld bytes available for logging", bytesFree);
+			"%ld bytes available for logging", bytesFree);
 
 	// Get time info
 	time_t rawTime;
@@ -417,7 +419,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	char fileName[128];
 	char fileTimestamp[64];
 	strftime(fileTimestamp, sizeof(fileTimestamp),"%Y_%m_%d_%H_%M_%S", timeInfo);
-	sprintf(fileName, "%s_%s.aedat", fileBaseName, fileTimestamp);
+	sprintf(fileName, "%s/%s_%s.aedat", fileBaseName, RAW_OUTPUT_FILE_NAME, fileTimestamp);
 
 	// Check if filename exists
 	struct stat st;
@@ -426,7 +428,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 		caerLog(CAER_LOG_WARNING, moduleData->moduleSubSystemString,
 				"Filename %s is already used.", fileName);
 		n++;
-		sprintf(fileName, "%s_%s_%d.aedat",
+		sprintf(fileName, "%s/%s_%s_%d.aedat", fileBaseName,
 				fileBaseName, fileTimestamp, n);
 	}
 	// Open file
@@ -438,9 +440,9 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	}
 
 	// Write header (based on output_common.c)
-	fprintf(state->rawOutputFile,"#!AER-DAT3.0\n");
+	fprintf(state->rawOutputFile,"#!AER-DAT2.0\n");
 	fprintf(state->rawOutputFile,"#Format: RAW\r\n");
-	char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(1),
+	char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(10),
 			"sourceString");
 	fprintf(state->rawOutputFile,"%s",sourceString);
 	free(sourceString);
@@ -453,14 +455,14 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 	fprintf(state->rawOutputFile,"%s", currentTimeString);
 	fprintf(state->rawOutputFile, "#!END-HEADER\n");
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
-			"Writing a maximum of %lld raw events to %s",
+			"Writing a maximum of %ld raw events to %s",
 			maxNumberOfRawEvents, fileName);
 
 	// Now we also log time delay
-	sprintf(fileName, "%s_%s.csv",
+	sprintf(fileName, "%s/%s_%s.csv", fileBaseName,
 			TIMING_OUTPUT_FILE_NAME, fileTimestamp);
 	if (n > 0)
-		sprintf(fileName, "%s_%s_%d.csv",
+		sprintf(fileName, "%s/%s_%s_%d.csv", fileBaseName,
 				TIMING_OUTPUT_FILE_NAME, fileTimestamp, n);
 	state->timingOutputFile = fopen(fileName,"w");
 	if (state->timingOutputFile == NULL) {
