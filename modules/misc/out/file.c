@@ -5,7 +5,6 @@
 #include "ext/portable_misc.h"
 #include <fcntl.h>
 #include <time.h>
-#include <limits.h>
 
 #if __APPLE__
 #include <sys/syslimits.h>
@@ -49,44 +48,6 @@ static char *getUserHomeDirectory(const char *subSystemString) {
 	UV_RET_CHECK(retVal, subSystemString, "uv_os_homedir", return (NULL));
 
 	return (homeDir);
-}
-
-// Return the path to the caer executable
-// Remember to free strings returned by this.
-char *getTopPath(const char *subSystemString) {
-	// Allocate memory for home directory path.
-	char *dir = malloc(PATH_MAX);
-	if (dir == NULL) {
-		caerLog(CAER_LOG_ERROR, subSystemString, "Failed to allocate memory for log directory string.");
-		return (NULL);
-	}
-
-	// get path to head folder
-	char symlink_path[PATH_MAX];
-	pid_t pid = getpid();
-	sprintf(symlink_path, "/proc/%d/exe", pid);
-	if (readlink(symlink_path, dir, PATH_MAX) == -1){
-		caerLog(CAER_LOG_ERROR, subSystemString, "Failed to get path to main directory string.");
-		return (NULL);
-	}
-
-	// strip function name
-	char* fn = strrchr(dir,'/caer-bin');
-	if (fn)	{
-		*(fn-8) = '\0';
-	}
-
-	return (dir);
-}
-
-// Returns path of log folder
-// Remember to free strings returned by this.
-char *getLogPath(const char *subSystemString) {
-	// Allocate memory for home directory path.
-	char *logDir = getTopPath(subSystemString);
-	strcat(logDir, "/logs");
-
-	return (logDir);
 }
 
 static char *getFullFilePath(const char *subSystemString, const char *directory, const char *prefix) {

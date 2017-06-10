@@ -187,7 +187,6 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 			points[i].isUsed = true;
 		}
 		for (nReject = 0; nReject < state->nReject; nReject++) {
-
 			// find point with max distance
 			float dMax = 0; uint32_t iS = 0;
 			for (i = 0; i < nInit-1; i++) {
@@ -221,8 +220,8 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 				return;
 			}
 			// Compute plane parameters
-			a = 1/D*(sy2*sxt - sxy*syt);
-			b = 1/D*(sx2*syt - sxy*sxt);
+			a = (sy2*sxt - sxy*syt)/D;
+			b = (sx2*syt - sxy*sxt)/D;
 
 			// Compute R2
 			SSR = st2-a*sxt-b*syt;

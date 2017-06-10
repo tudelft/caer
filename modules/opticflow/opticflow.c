@@ -15,7 +15,7 @@
 #include "flowOutput.h"
 #include "termios.h"
 #include "dvs128Calibration.h"
-#include "modules/misc/out/file.h"
+#include "modules/misc/inout_common.h"
 
 #include <sys/statfs.h>
 #include <sys/stat.h>
@@ -430,7 +430,7 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 				"Filename %s is already used.", fileName);
 		n++;
 		sprintf(fileName, "%s/%s_%s_%d.aedat", fileBaseName,
-				fileBaseName, fileTimestamp, n);
+				RAW_OUTPUT_FILE_NAME, fileTimestamp, n);
 	}
 	// Open file
 	state->rawOutputFile = fopen(fileName,"w");
@@ -460,11 +460,11 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 			maxNumberOfRawEvents, fileName);
 
 	// Now we also log time delay
-	sprintf(fileName, "%s/%s_%s.csv", fileBaseName,
-			TIMING_OUTPUT_FILE_NAME, fileTimestamp);
-	if (n > 0)
-		sprintf(fileName, "%s/%s_%s_%d.csv", fileBaseName,
-				TIMING_OUTPUT_FILE_NAME, fileTimestamp, n);
+	if (n > 0){
+		sprintf(fileName, "%s/%s_%s_%d.csv", fileBaseName, TIMING_OUTPUT_FILE_NAME, fileTimestamp, n);
+	} else {
+		sprintf(fileName, "%s/%s_%s.csv", fileBaseName, TIMING_OUTPUT_FILE_NAME, fileTimestamp);
+	}
 	state->timingOutputFile = fopen(fileName,"w");
 	if (state->timingOutputFile == NULL) {
 		caerLog(CAER_LOG_ALERT, moduleData->moduleSubSystemString,

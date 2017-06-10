@@ -24,6 +24,7 @@
 #include "base/mainloop.h"
 #include "base/misc.h"
 #include <unistd.h>
+#include "modules/misc/inout_common.h"
 
 // Devices support.
 #include "modules/ini/dynapse_fx2.h"
