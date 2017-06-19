@@ -61,7 +61,7 @@ void closeUartOutput(flowOutputState state);
  * @param bufferSize Transfer ring buffer size.
  * @return
  */
-bool initFileOutput(flowOutputState state, const char* file, size_t bufferSize);
+bool initFileOutput(flowOutputState state, const char* file, size_t bufferSize, const char* comments);
 
 /**
  * Close file logging and free up state memory.

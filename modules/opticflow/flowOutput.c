@@ -212,7 +212,7 @@ bool initUartOutput(flowOutputState state, const char* port, unsigned int baud, 
 	return (true);
 }
 
-bool initFileOutput(flowOutputState state, const char* fileBaseName, size_t bufferSize) {
+bool initFileOutput(flowOutputState state, const char* fileBaseName, size_t bufferSize, const char* comments) {
 	// Get timestamp info
 	time_t rawTime;
 	time (&rawTime);
@@ -246,6 +246,10 @@ bool initFileOutput(flowOutputState state, const char* fileBaseName, size_t buff
 	}
 	// Write creation date
 	fprintf(state->file,"#Date created: %s\n",asctime(timeInfo));
+
+	// Write settings for dataset
+	fprintf(state->file,"#%s\n", comments);
+
 	// Write column legend
 	fprintf(state->file,"#x,y,t,p,u,v\n");
 

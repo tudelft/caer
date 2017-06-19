@@ -152,7 +152,14 @@ static bool caerOpticFlowFilterInit(caerModuleData moduleData) {
 		// build absolute path
 		char file_path[PATH_MAX];
 		sprintf(file_path, "%s/%s", path, FLOW_OUTPUT_FILE_NAME);
-		if (!initFileOutput(state->outputState, file_path, RING_BUFFER_SIZE)) {
+
+		char comments[1024];
+		sprintf(comments,"Parameters: refractoryPeriod %ld, flow_dtMax %ld, vMax %f, dx %d, nReject %d, maxNRMSE %f, dtStopFactor %f, nMin %d, limitEventRate %d, rateSetpoint %f rateTimeConstant %f, subSampleBy %d",
+		state->flowState->refractoryPeriod, state->flowState->dtMax, state->flowState->vMax, state->flowState->dx,
+		state->flowState->nReject, state->flowState->maxNRMSE, state->flowState->dtStopFactor, state->flowState->nMin,
+		state->flowState->limitEventRate, state->flowState->rateSetpoint, state->flowState->rateTimeConstant, state->subSampleBy);
+
+		if (!initFileOutput(state->outputState, file_path, RING_BUFFER_SIZE, comments)) {
 			caerLog(CAER_LOG_INFO,moduleData->moduleSubSystemString,
 					"File logging not available.");
 		}
