@@ -21,7 +21,7 @@
 #define N_POINTS_MINIMUM_FIT 3
 
 struct point3d {
-	uint8_t xx,yy;
+	uint16_t xx,yy;
 	int64_t dt;
 	bool isUsed;
 };
@@ -62,8 +62,8 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 
 	// Accumulate event timestamps where possible
 	for (i = 0; i < state->kernelSize; i++) {
-		uint8_t xx = (uint8_t) (x + state->dxKernel[i]);
-		uint8_t yy = (uint8_t) (y + state->dyKernel[i]);
+		uint16_t xx = x + state->dxKernel[i];
+		uint16_t yy = y + state->dyKernel[i];
 		if (xx >= buffer->sizeX || yy >= buffer->sizeY)
 			continue;
 		int64_t dt = t - simple2DBufferLongGet(buffer, (size_t) xx, (size_t)yy);
@@ -76,9 +76,9 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 			points[0].dt = dt;
 		}
 		else {
-			uint32_t j,k;
+			int32_t j,k;
 			bool c = false;
-			for (j=0; j < n-1; j++) {
+			for (j=0; j < (int32_t)n-1; j++) {
 				if (dt < points[j].dt) {
 					for (k = (int32_t)n-2; k >= j; k--) {
 						points[k+1] = points[k];
@@ -104,15 +104,16 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	}
 
 	// Determine where to cut off event selection
-	int16_t dx1 = (int16_t)(points[0].xx - x);
-	int16_t dy1 = (int16_t)(points[0].yy - y);
+	int16_t dx1 = points[0].xx - x;
+	int16_t dy1 = points[0].yy - y;
+	int16_t dx2, dy2;
 	int64_t dtMax;
 	bool nn = false;
 	for (i=1; i < n-1; i++) {
 		if (!nn) {
 			// Set dtMax at first linearly independent pair of points
-			int8_t dx2 = (int8_t) (points[i].xx - x);
-			int8_t dy2 = (int8_t) (points[i].yy - y);
+			dx2 = points[i].xx - x;
+			dy2 = points[i].yy - y;
 			if (dx2 * dy1 - dy2 * dx1 != 0) {
 				dtMax = (int64_t) ((float) points[i].dt * state->dtStopFactor);
 				nn = true;
@@ -146,8 +147,8 @@ void flowAdaptiveComputeFlow(flowEvent e, simple2DBufferLong buffer,
 	float dyus[state->kernelSize];
 
 	for (i = 0; i < n-1; i++) {
-		uint8_t xx = points[i].xx;
-		uint8_t yy = points[i].yy;
+		uint16_t xx = points[i].xx;
+		uint16_t yy = points[i].yy;
 		float xxU = dvs128GetUndistortedPixelX(xx,yy);
 		float yyU = dvs128GetUndistortedPixelY(xx,yy);
 		float dx = xxU - xU;
@@ -277,13 +278,13 @@ void flowAdaptiveUpdateRate(flowAdaptiveState state, int64_t lastFlowDt) {
 bool flowAdaptiveInitSearchKernels(flowAdaptiveState state) {
 	size_t window = (size_t) state->dx * 2 + 1;
 	state->kernelSize = window*window - 1;
-	state->dxKernel = malloc(state->kernelSize * sizeof(int8_t));
-	state->dyKernel = malloc(state->kernelSize * sizeof(int8_t));
+	state->dxKernel = calloc(state->kernelSize, sizeof(int16_t));
+	state->dyKernel = calloc(state->kernelSize, sizeof(int16_t));
 
-	int8_t x,y;
+	int16_t x,y;
 	size_t n = 0;
-	for (x = -((int8_t) state->dx); x <= (int8_t) state->dx; x++) {
-		for (y = -((int8_t) state->dx); y <= (int8_t) state->dx; y++) {
+	for (x = -state->dx; x <= state->dx; x++) {
+		for (y = -state->dx; y <= state->dx; y++) {
 			if (x == 0 && y == 0)
 				continue;
 			state->dxKernel[n] = x;

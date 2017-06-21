@@ -16,7 +16,7 @@
 struct flow_adaptive_state {
 	int64_t refractoryPeriod;
 
-	uint8_t dx;
+	uint16_t dx;
 	int64_t dtMax;
 	float 	vMax;
 	uint32_t nReject;
@@ -28,8 +28,8 @@ struct flow_adaptive_state {
 	float	rateSetpoint;
 	float	rateTimeConstant;
 
-	int8_t* dxKernel;
-	int8_t* dyKernel;
+	int16_t* dxKernel;
+	int16_t* dyKernel;
 	size_t 	kernelSize;
 	float	flowRate;
 	int64_t lastEventT;
