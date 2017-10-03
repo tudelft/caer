@@ -483,17 +483,17 @@ static bool openAEDatFile(OpticFlowFilterState state, caerModuleData moduleData,
 
 	// Write header (based on output_common.c)
 	fprintf(state->rawOutputFile,"#!AER-DAT2.0\n");
-  fprintf(state->rawOutputFile,"# This is a raw AE data file - do not edit");
-  fprintf(state->rawOutputFile,"# Data format is int16 address, int32 timestamp (4 bytes total), repeated for each event");
-  fprintf(state->rawOutputFile,"# Timestamps tick is 1 us");
-  size_t currentTimeStringLength = 45;
+	fprintf(state->rawOutputFile,"# This is a raw AE data file - do not edit\n");
+	fprintf(state->rawOutputFile,"# Data format is int16 address, int32 timestamp (4 bytes total), repeated for each event\n");
+	fprintf(state->rawOutputFile,"# Timestamps tick is 1 us\n");
+	size_t currentTimeStringLength = 45;
 	char currentTimeString[currentTimeStringLength]; // + 1 for terminating NUL byte.
 	strftime(currentTimeString, currentTimeStringLength, "# created %a %b %d %T %Z %G\n", timeInfo);
-  char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(10),
+	char *sourceString = sshsNodeGetString(caerMainloopGetSourceInfo(10),
 			"sourceString");
 	fprintf(state->rawOutputFile,"%s",sourceString);
 	free(sourceString);
-  fprintf(state->rawOutputFile,"# AEChip: ch.unizh.ini.jaer.chip.retina.DVS128");
+	fprintf(state->rawOutputFile,"# AEChip: ch.unizh.ini.jaer.chip.retina.DVS128\n");
 
 	caerLog(CAER_LOG_NOTICE, moduleData->moduleSubSystemString,
 			"Writing a maximum of %lld raw events to %s",
